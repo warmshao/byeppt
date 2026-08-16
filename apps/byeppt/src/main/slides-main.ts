@@ -3671,7 +3671,7 @@ html, body { margin: 0; padding: 0; }
 let slidesProjectStore: ProjectStore | null = null
 let slidesProjectIpcRegistered = false
 
-function getSlidesProjectStore(): ProjectStore {
+export function getSlidesProjectStore(): ProjectStore {
   if (!slidesProjectStore) slidesProjectStore = new ProjectStore(app.getPath('userData'))
   return slidesProjectStore
 }
@@ -4083,7 +4083,7 @@ export function startSlidesStandalone(): void {
   app.whenReady().then(async () => {
     setUiLang(normalizeLang(process.env.BYEPPT_LANG ?? app.getLocale()))
     registerSlidesIpc()
-    registerAgentIpc()
+    registerAgentIpc(getSlidesProjectStore)
     registerProjectIpc()
     Menu.setApplicationMenu(buildSlidesMenu())
     const win = createSlidesWindow(pendingOpenPath)

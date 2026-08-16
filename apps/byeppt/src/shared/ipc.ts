@@ -31,6 +31,20 @@ export interface AgentStatus {
   /** Models that have credentials configured */
   availableModels: AgentModelInfo[]
   error?: string
+  /** Set on deck-scoped pushes; absent on global (model/settings) broadcasts */
+  deckKey?: string
+}
+
+/** One past agent session of a deck (history list entry). */
+export interface AgentSessionSummary {
+  sessionFile: string
+  /** session_info display name; may be empty */
+  title: string
+  createdAt: string
+  modifiedAt: string
+  messageCount: number
+  /** the tab's currently live session */
+  current: boolean
 }
 
 /** AgentSessionEvent forwarded from the main process; structurally typed (plain JSON). */
@@ -54,7 +68,23 @@ export interface AgentApi {
   prompt: (text: string) => Promise<{ ok: boolean; error?: string }>
   abort: () => Promise<{ ok: boolean }>
   setModel: (sel: { provider: string; id: string }) => Promise<{ ok: boolean; error?: string }>
-  newSession: () => Promise<{ ok: boolean }>
+  newSession: () => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Bind this chat panel to its deck: resolves the stable chatId (project-store)
+   * and the deck's private agent workdir; all agent IPC afterwards routes by
+   * sender. Re-bind on filePath change (unsaved → saved folds the temp chat's
+   * data into the file's chat and continues the session).
+   */
+  bind: (args: {
+    filePath: string | null
+    tempChatId?: string
+  }) => Promise<{ ok: boolean; deckKey?: string; error?: string }>
+  /** This deck's past sessions, newest first */
+  listSessions: () => Promise<AgentSessionSummary[]>
+  /** Resume a past session; returns its messages for the panel to replay */
+  resumeSession: (
+    sessionFile: string,
+  ) => Promise<{ ok: boolean; messages?: unknown[]; error?: string }>
   /** Answer an interactive UI request card (select/confirm/input) from the agent */
   respondUi: (reqId: string, value: unknown) => Promise<{ ok: boolean }>
   /** Jump to the shell Home tab and open the model settings pane (no-op standalone) */

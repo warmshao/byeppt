@@ -2,22 +2,32 @@
  * byeppt agent host — embeds the vsurf RLM agent (`@warmshao/vsurf` SDK) in the
  * Electron main process.
  *
- * The session is created lazily on first prompt. Every AgentSessionEvent is
- * forwarded to all renderer windows ('agent:event'); the chat panel renders
- * straight from that stream. Slide-editing tools bridge in as customTools
- * (Phase 2, deck-bridge); image generation as a customTool (Phase 4).
+ * Sessions are per-tab: each chat panel (shell tab / standalone window) binds
+ * its deck via 'agent:bind' and gets a lazily created AgentSession keyed by
+ * chatId (project-store's stable per-file id; unsaved decks use a temp id).
+ * Each deck's session runs with cwd = its own workdir
+ * (projects/<pid>/agent/<chatId>/): vsurf session files, kernel artifacts and
+ * the imagegen .env all stay inside that folder, so history and materials are
+ * naturally per-tab. Events are delivered only to the owning tab's
+ * webContents, tagged with deckKey so the renderer can filter on the broadcast
+ * fallback. Slide-editing tools bridge in as customTools targeting the owning
+ * tab (Phase 2, deck-bridge); image generation as a customTool (Phase 4).
+ *
+ * History: the chat panel lists a deck's past sessions straight from the
+ * workdir (SessionManager.list) and resumes one via SessionManager.open(file).
  *
  * Credentials: vsurf AuthStorage at <userData>/agent/auth.json (the only
  * secret store). The non-secret "last selected model" lives in app-settings.
  */
 import { app, ipcMain, shell, webContents } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
 import type { AgentProviderConfig } from '../app-settings'
-import { syncImageGenEnvFile } from '../imagegen/env'
+import { syncImageGenEnvFile, syncImageGenEnvFileTo } from '../imagegen/env'
 import { buildSlideCustomTools } from './slide-tools-main'
 import { prepareKernelEnvironment } from './kernel-env'
+import type { ProjectStore } from '@byeppt/project-store'
 
 /** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
 const BYEPPT_PREAMBLE = [
@@ -27,7 +37,6 @@ const BYEPPT_PREAMBLE = [
   'view_slide renders a page to a PNG you can see — use it to visually verify your edits (alignment, spacing, overflow, contrast), especially after finishing a slide and during whole-deck QC.',
   'For any deck creation/beautify/heavy-edit task, follow the byeppt-deck skill (its methodology, stage gates, and design references are authoritative).',
   'Never fabricate numbers as facts (the tools enforce dataSource); reply in the user’s language.',
-  'The full vsurf builtin skill set (browser automation, websearch, edit, …) is installed alongside the byeppt skills — always consult <available_skills> before claiming a capability is missing.',
 ].join('\n')
 
 /** Locate the bundled skills dir (repo ./skills in dev, resources/skills when packaged). */
@@ -74,10 +83,26 @@ export interface AgentStatus {
 
 let sdk: VsurfSdk | null = null
 let sdkError: string | null = null
-let session: AgentSession | null = null
 let authStorage: AuthStorage | null = null
 let modelRegistry: ModelRegistry | null = null
-let starting: Promise<AgentSession | null> | null = null
+
+/** A bound deck tab: chatId (stable per file) + its private agent workdir. */
+interface DeckBinding {
+  deckKey: string
+  workdir: string
+}
+/** webContents.id → deck the tab is bound to (via 'agent:bind') */
+const tabDeck = new Map<number, DeckBinding>()
+/** deckKey → live AgentSession */
+const live = new Map<string, AgentSession>()
+const starting = new Map<string, Promise<AgentSession | null>>()
+/** deckKey → session file to resume on next ensureSession (temp→saved rebind) */
+const pendingResume = new Map<string, string>()
+/** project-store accessor injected by registerAgentIpc (avoids a slides-main import cycle) */
+let getStore: (() => ProjectStore) | null = null
+
+/** First-run kernel env bootstrap runs once per app, not once per deck session. */
+let kernelPrep: Promise<unknown> | null = null
 
 const agentDir = (): string => join(app.getPath('userData'), 'agent')
 
@@ -110,57 +135,75 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
+/**
+ * Send to the tab that owns this deck; falls back to broadcast when the tab is
+ * gone (reload, mid-rebind) — the payload always carries deckKey so renderers
+ * filter out events for other tabs either way.
+ */
+function sendToDeck(deckKey: string, channel: string, payload: unknown): void {
+  for (const [wcId, deck] of tabDeck) {
+    if (deck.deckKey !== deckKey) continue
+    const wc = webContents.fromId(wcId)
+    if (wc && !wc.isDestroyed()) {
+      wc.send(channel, payload)
+      return
+    }
+  }
+  broadcast(channel, payload)
+}
+
 // ── Interactive UI bridge (ExtensionUIContext → chat panel) ─────────────────
 // The vsurf browser skill (and any extension) asks the user for choices via
 // ui.select/confirm/input. In the TUI these render as terminal dialogs; here
-// they travel as byeppt:ui-request events to the chat panel, which answers via
-// the 'agent:ui-respond' IPC. Without this bridge a select() would pend
-// forever and the run would look stuck with a spinner.
+// they travel as byeppt:ui-request events to the owning tab's chat panel, which
+// answers via the 'agent:ui-respond' IPC. Without this bridge a select() would
+// pend forever and the run would look stuck with a spinner.
 
 type ExtensionUIContext = import('@warmshao/vsurf').ExtensionUIContext
 
-const uiWaiters = new Map<string, (value: unknown) => void>()
+const uiWaiters = new Map<string, { deckKey: string; resolve: (value: unknown) => void }>()
 let uiSeq = 0
 
-function uiAsk(payload: Record<string, unknown>): Promise<unknown> {
+function uiAsk(deckKey: string, payload: Record<string, unknown>): Promise<unknown> {
   const reqId = `ui-${++uiSeq}`
   console.log('[agent] ui-request issued:', reqId, payload.kind, payload.title)
   return new Promise((resolve) => {
-    uiWaiters.set(reqId, resolve)
-    broadcast('agent:event', { type: 'byeppt:ui-request', reqId, ...payload })
+    uiWaiters.set(reqId, { deckKey, resolve })
+    sendToDeck(deckKey, 'agent:event', { type: 'byeppt:ui-request', deckKey, reqId, ...payload })
   })
 }
 
 function settleUiRequest(reqId: string, value: unknown): void {
-  const resolve = uiWaiters.get(reqId)
-  if (!resolve) return
+  const waiter = uiWaiters.get(reqId)
+  if (!waiter) return
   uiWaiters.delete(reqId)
   console.log('[agent] ui-request settled:', reqId, value === undefined ? '(declined)' : '(answered)')
-  resolve(value)
-  // every open chat panel clears the card, not just the one that answered
-  broadcast('agent:event', { type: 'byeppt:ui-resolved', reqId })
+  waiter.resolve(value)
+  sendToDeck(waiter.deckKey, 'agent:event', { type: 'byeppt:ui-resolved', deckKey: waiter.deckKey, reqId })
 }
 
-/** Decline every pending UI request (abort / session teardown). */
-function declineAllUiRequests(): void {
-  for (const reqId of [...uiWaiters.keys()]) settleUiRequest(reqId, undefined)
+/** Decline every pending UI request (abort / session teardown), optionally one deck only. */
+function declineAllUiRequests(deckKey?: string): void {
+  for (const [reqId, w] of [...uiWaiters]) {
+    if (deckKey === undefined || w.deckKey === deckKey) settleUiRequest(reqId, undefined)
+  }
 }
 
-function buildExtensionUiContext(): ExtensionUIContext {
+function buildExtensionUiContext(deckKey: string): ExtensionUIContext {
   const noop = () => {}
   return {
     select: (title: string, options: string[]) =>
-      uiAsk({ kind: 'select', title, options }).then((v) =>
+      uiAsk(deckKey, { kind: 'select', title, options }).then((v) =>
         typeof v === 'string' ? v : undefined,
       ),
     confirm: (title: string, message: string) =>
-      uiAsk({ kind: 'confirm', title, message }).then((v) => v === true),
+      uiAsk(deckKey, { kind: 'confirm', title, message }).then((v) => v === true),
     input: (title: string, placeholder?: string) =>
-      uiAsk({ kind: 'input', title, placeholder }).then((v) =>
+      uiAsk(deckKey, { kind: 'input', title, placeholder }).then((v) =>
         typeof v === 'string' && v.trim() ? v.trim() : undefined,
       ),
     notify: (message: string, type?: 'info' | 'warning' | 'error') =>
-      broadcast('agent:event', { type: 'byeppt:ui-notify', message, level: type ?? 'info' }),
+      sendToDeck(deckKey, 'agent:event', { type: 'byeppt:ui-notify', deckKey, message, level: type ?? 'info' }),
     // TUI-only surfaces — no-ops in the Electron host
     onTerminalInput: () => noop,
     setStatus: noop,
@@ -269,10 +312,44 @@ function pickModel(reg: ModelRegistry): ReturnType<ModelRegistry['getAvailable']
   return undefined
 }
 
-async function ensureSession(): Promise<AgentSession | null> {
-  if (session) return session
-  if (starting) return starting
-  starting = (async () => {
+/** Dispose a deck's live session (if any): decline its UI waiters, release the kernel. */
+async function disposeDeck(deckKey: string): Promise<void> {
+  declineAllUiRequests(deckKey)
+  const cur = live.get(deckKey)
+  if (!cur) return
+  live.delete(deckKey)
+  try {
+    await cur.disposeAsync()
+  } catch (err) {
+    console.warn('[agent] dispose failed:', err)
+  }
+}
+
+/** Push the deck-scoped status to its tab (streaming flag is per session). */
+async function pushStatus(deckKey: string): Promise<void> {
+  sendToDeck(deckKey, 'agent:status', { ...(await getStatus(deckKey)), deckKey })
+}
+
+/** The webContents currently hosting a deck's tab (for deck-bridge targeting). */
+function wcIdForDeck(deckKey: string): number | undefined {
+  for (const [wcId, d] of tabDeck) if (d.deckKey === deckKey) return wcId
+  return undefined
+}
+
+async function ensureSession(deck: DeckBinding, resumeFile?: string): Promise<AgentSession | null> {
+  if (!resumeFile) {
+    const cur = live.get(deck.deckKey)
+    if (cur) return cur
+    // temp→saved rebind: continue the moved session instead of starting fresh
+    const resume = pendingResume.get(deck.deckKey)
+    if (resume) {
+      pendingResume.delete(deck.deckKey)
+      if (existsSync(resume)) resumeFile = resume
+    }
+  }
+  const pending = starting.get(deck.deckKey)
+  if (pending) return pending
+  const p = (async () => {
     const s = await loadSdk()
     const stores = await ensureStores()
     if (!s || !stores) return null
@@ -282,19 +359,25 @@ async function ensureSession(): Promise<AgentSession | null> {
       return null
     }
     const skillsDir = resolveSkillsDir()
-    // The kernel's batch image path (image_gen.py) reads <cwd>/.env — mirror
-    // the Settings image backend there before the kernel can spawn.
+    // The kernel's batch image path (image_gen.py) reads <cwd>/.env — the
+    // kernel cwd is the deck workdir, so mirror the Settings backend there
+    // (and keep the global agent/.env in sync for anything still reading it).
+    mkdirSync(deck.workdir, { recursive: true })
     await syncImageGenEnvFile()
+    await syncImageGenEnvFileTo(deck.workdir)
     // First-run kernel env: ensure uv + install byeppt-pptx-py (and its deps) into
-    // the vsurf kernel venv. Runs in the background and streams progress to the
-    // renderer; never blocks session creation and never throws here.
-    void prepareKernelEnvironment((message) =>
-      broadcast('agent:event', { type: 'byeppt:kernel-progress', message }),
-    ).then((r) => {
-      broadcast('agent:event', { type: 'byeppt:kernel-ready', ok: r.ok, error: r.error })
-    })
+    // the vsurf kernel venv. Runs once per app in the background and streams
+    // progress to the renderer; never blocks session creation and never throws here.
+    if (!kernelPrep) {
+      kernelPrep = prepareKernelEnvironment((message) =>
+        broadcast('agent:event', { type: 'byeppt:kernel-progress', message }),
+      ).then((r) => {
+        broadcast('agent:event', { type: 'byeppt:kernel-ready', ok: r.ok, error: r.error })
+      })
+    }
+    const sessionDir = join(deck.workdir, 'sessions')
     const resourceLoader = new s.DefaultResourceLoader({
-      cwd: agentDir(),
+      cwd: deck.workdir,
       agentDir: agentDir(),
       ...(skillsDir
         ? {
@@ -308,89 +391,195 @@ async function ensureSession(): Promise<AgentSession | null> {
       // keep them out of the system prompt (the SDK's own CLI wires this to
       // its MCP manager; a custom resourceLoader must opt in explicitly).
       extraBuiltinSkillOverrides: () => ['-notion/SKILL.md', '-linear/SKILL.md'],
+      // vsurf also scans the cross-agent shared dirs (~/.agents/skills and
+      // ancestor .agents/skills) — on a dev machine those hold unrelated CLI
+      // skills (arkcli-*, 24 of them here) that flood <available_skills> and
+      // drown the byeppt/vsurf skills the model should actually pick from.
+      skillsOverride: (base) => ({
+        ...base,
+        skills: base.skills.filter(
+          (skill) => !/[\\/]\.agents[\\/]skills[\\/]/.test(skill.filePath),
+        ),
+      }),
       appendSystemPrompt: [BYEPPT_PREAMBLE],
     })
+    // createAgentSession only reloads a resource loader it created itself — a
+    // host-provided loader stays unloaded: getSkills() returns [], so no
+    // <available_skills> in the system prompt, no kernel skill imports, and NO
+    // browser host handlers (kernel browser.* calls fail with "not available
+    // in this session" before the connection picker can ever fire).
+    await resourceLoader.reload()
     const { session: created } = await s.createAgentSession({
       agentDir: agentDir(),
-      cwd: agentDir(),
+      cwd: deck.workdir,
       authStorage: stores.authStorage,
       modelRegistry: stores.modelRegistry,
       model,
       resourceLoader,
-      // Slide-editing tools: each forwards over the deck bridge into the active
-      // slides renderer (see slide-tools-main.ts / deck-bridge.ts)
-      customTools: await buildSlideCustomTools(s),
+      // Per-deck session storage: fresh sessions and resumes alike live under
+      // the deck workdir, never in the shared agent dir.
+      sessionManager: resumeFile
+        ? s.SessionManager.open(resumeFile, sessionDir, deck.workdir)
+        : s.SessionManager.create(deck.workdir, sessionDir),
+      // Slide-editing tools: each forwards over the deck bridge into the OWNING
+      // tab's slides renderer (see slide-tools-main.ts / deck-bridge.ts)
+      customTools: await buildSlideCustomTools(s, () => wcIdForDeck(deck.deckKey)),
     })
+    const deckKey = deck.deckKey
     created.subscribe((event) => {
       try {
-        broadcast('agent:event', event)
+        sendToDeck(deckKey, 'agent:event', { ...event, deckKey })
         // streaming flips back to false here — without this push the panel's
         // send button stays in "stop" mode after a successful run
-        if (event?.type === 'agent_end') void getStatus().then((s) => broadcast('agent:status', s))
+        if (event?.type === 'agent_end') void pushStatus(deckKey)
       } catch (err) {
         console.warn('[agent] failed to forward event', event?.type, err)
       }
     })
-    session = created
+    live.set(deckKey, created)
     // Wire the interactive UI bridge (browser connection picker, extension
     // select/confirm/input dialogs) into the chat panel — without it a
     // ui.select() pends forever and the run looks stuck.
-    await created.bindExtensions({ uiContext: buildExtensionUiContext() })
-    console.log('[agent] extension UI bridge bound')
-    broadcast('agent:status', await getStatus())
+    await created.bindExtensions({ uiContext: buildExtensionUiContext(deckKey) })
+    console.log('[agent] extension UI bridge bound for deck', deckKey)
+    await pushStatus(deckKey)
     return created
   })()
+  starting.set(deck.deckKey, p)
   try {
-    return await starting
+    return await p
   } finally {
-    starting = null
+    starting.delete(deck.deckKey)
   }
 }
 
-async function getStatus(): Promise<AgentStatus> {
+async function getStatus(deckKey?: string): Promise<AgentStatus> {
   const stores = await ensureStores()
   if (!stores) {
     return { sdkReady: false, ready: false, streaming: false, availableModels: [], error: sdkError ?? 'sdk-load-failed' }
   }
   const available = stores.modelRegistry.getAvailable().map(modelInfo)
-  const current = session?.model ?? pickModel(stores.modelRegistry)
+  const own = deckKey ? live.get(deckKey) : undefined
+  const current = own?.model ?? [...live.values()][0]?.model ?? pickModel(stores.modelRegistry)
   return {
     sdkReady: true,
     ready: !!current,
-    streaming: session?.isStreaming ?? false,
+    streaming: own?.isStreaming ?? false,
     model: current ? modelInfo(current) : undefined,
     availableModels: available,
     ...(current ? {} : { error: 'no-model' }),
   }
 }
 
-export function registerAgentIpc(): void {
-  ipcMain.handle('agent:status', () => getStatus())
+/**
+ * Cap / strip heavy payloads before session messages cross IPC for a history
+ * replay: view_slide PNG data URLs are huge and render as '[image]' anyway.
+ */
+function sanitizeMessages(messages: unknown[]): unknown[] {
+  const CAP = 12_000
+  const clean = (content: unknown): unknown => {
+    if (typeof content === 'string') {
+      return content.length > CAP ? `${content.slice(0, CAP)}\n…` : content
+    }
+    if (!Array.isArray(content)) return content
+    return content.map((b) => {
+      if (!b || typeof b !== 'object') return b
+      const block = { ...(b as Record<string, unknown>) }
+      if (block.type === 'image') return { type: 'text', text: '[image]' }
+      for (const k of ['text', 'thinking'] as const) {
+        const v = block[k]
+        if (typeof v === 'string' && v.length > CAP) block[k] = `${v.slice(0, CAP)}\n…`
+      }
+      return block
+    })
+  }
+  return messages.map((m) => {
+    if (!m || typeof m !== 'object') return m
+    const msg = m as Record<string, unknown>
+    return { ...msg, content: clean(msg.content) }
+  })
+}
 
-  ipcMain.handle('agent:prompt', async (_e, text: string) => {
-    const s = await ensureSession()
+export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
+  getStore = storeAccessor
+
+  /**
+   * Bind a chat panel's webContents to its deck. Resolves the stable chatId via
+   * project-store (filePath → chatId mapping; unsaved decks keep their temp id)
+   * and the deck's private agent workdir. When an unsaved deck first gets a
+   * real path, the temp chat's data (chats / attachments / agent workdir) is
+   * folded into the file's chat and the live session resumes from the moved
+   * session file on next ensureSession.
+   */
+  ipcMain.handle('agent:bind', async (e, args: { filePath: string | null; tempChatId?: string }) => {
+    const store = getStore?.()
+    if (!store) return { ok: false, error: 'store-unavailable' }
+    store.ensureDefaultProject()
+    const { projectId, chatId } = args.filePath
+    ? store.resolveChatForFile(args.filePath)
+    : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
+    const wcId = e.sender.id
+    const prev = tabDeck.get(wcId)
+    if (args.filePath && prev && prev.deckKey !== chatId && prev.deckKey.startsWith('unsaved-')) {
+      const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
+      await disposeDeck(prev.deckKey)
+      store.rebindChatToFile('default', prev.deckKey, args.filePath)
+      if (oldFile) {
+        const moved = join(
+          store.agentWorkDir(projectId, chatId),
+          'sessions',
+          oldFile.split(/[\\/]/).pop()!,
+        )
+        if (existsSync(moved)) pendingResume.set(chatId, moved)
+      }
+    }
+    tabDeck.set(wcId, { deckKey: chatId, workdir: store.agentWorkDir(projectId, chatId) })
+    if (!prev) {
+      // Session survives a reload (the next bind re-attaches); just drop the routing entry
+      e.sender.once('destroyed', () => tabDeck.delete(wcId))
+    }
+    return { ok: true, deckKey: chatId }
+  })
+
+  ipcMain.handle('agent:status', (e) => getStatus(tabDeck.get(e.sender.id)?.deckKey))
+
+  ipcMain.handle('agent:prompt', async (e, text: string) => {
+    const deck = tabDeck.get(e.sender.id)
+    if (!deck) return { ok: false, error: 'unbound' }
+    const s = await ensureSession(deck)
     if (!s) return { ok: false, error: sdkError ?? 'no-model' }
     // The kernel may spawn lazily on this prompt — keep the batch image
     // path's .env in sync with Settings (cheap no-op when unchanged).
-    await syncImageGenEnvFile()
+    await syncImageGenEnvFileTo(deck.workdir)
     const wasIdle = !s.isStreaming
+    const deckKey = deck.deckKey
     // Fire and settle in the background; the event stream carries progress.
-    void s.prompt(String(text)).catch(async (err) => {
-      broadcast('agent:event', {
-        type: 'byeppt:error',
-        message: err instanceof Error ? err.message : String(err),
+    void s
+      .prompt(String(text))
+      .catch(async (err) => {
+        sendToDeck(deckKey, 'agent:event', {
+          type: 'byeppt:error',
+          deckKey,
+          message: err instanceof Error ? err.message : String(err),
+        })
       })
-      broadcast('agent:status', await getStatus())
-    })
-    if (wasIdle) broadcast('agent:status', await getStatus())
+      .finally(async () => {
+        // isStreaming only flips in finishRun(), AFTER agent_end listeners
+        // settle — the agent_end status push is still stale-true; the prompt
+        // promise settling is the only reliable "run really over" signal.
+        await pushStatus(deckKey)
+      })
+    if (wasIdle) await pushStatus(deckKey)
     return { ok: true }
   })
 
-  ipcMain.handle('agent:abort', async () => {
-    if (!session) return { ok: true }
-    declineAllUiRequests()
-    await session.abort()
-    broadcast('agent:status', await getStatus())
+  ipcMain.handle('agent:abort', async (e) => {
+    const deck = tabDeck.get(e.sender.id)
+    const s = deck ? live.get(deck.deckKey) : undefined
+    if (!deck || !s) return { ok: true }
+    declineAllUiRequests(deck.deckKey)
+    await s.abort()
+    await pushStatus(deck.deckKey)
     return { ok: true }
   })
 
@@ -406,25 +595,76 @@ export function registerAgentIpc(): void {
     const m = stores.modelRegistry.find(sel.provider, sel.id)
     if (!m) return { ok: false, error: 'unknown-model' }
     updateAppSettings({ agentModel: { provider: sel.provider, id: sel.id } })
-    if (session) await session.setModel(m)
+    for (const sess of live.values()) await sess.setModel(m)
     broadcast('agent:status', await getStatus())
     return { ok: true }
   })
 
-  ipcMain.handle('agent:new-session', async () => {
-    declineAllUiRequests()
-    if (session) {
-      const old = session
-      session = null
-      try {
-        await old.disposeAsync()
-      } catch (err) {
-        console.warn('[agent] dispose failed:', err)
-      }
+  ipcMain.handle('agent:new-session', async (e) => {
+    const deck = tabDeck.get(e.sender.id)
+    if (!deck) return { ok: false, error: 'unbound' }
+    try {
+      await disposeDeck(deck.deckKey)
+      // Eager create: surfaces 'no-model' through the status push immediately
+      await ensureSession(deck)
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
-    await ensureSession()
-    broadcast('agent:status', await getStatus())
+    await pushStatus(deck.deckKey)
     return { ok: true }
+  })
+
+  /** History list for one tab: every past session in this deck's workdir. */
+  ipcMain.handle('agent:list-sessions', async (e) => {
+    const deck = tabDeck.get(e.sender.id)
+    const s = await loadSdk()
+    if (!deck || !s) return []
+    try {
+      const infos = await s.SessionManager.list(deck.workdir, join(deck.workdir, 'sessions'))
+      const currentFile = live.get(deck.deckKey)?.sessionManager.getSessionFile()
+      return infos
+        .filter((i) => i.messageCount > 0)
+        .sort((a, b) => +new Date(b.modified) - +new Date(a.modified))
+        .map((i) => ({
+          sessionFile: i.path,
+          title: i.name ?? '',
+          createdAt: new Date(i.created).toISOString(),
+          modifiedAt: new Date(i.modified).toISOString(),
+          messageCount: i.messageCount,
+          current: i.path === currentFile,
+        }))
+    } catch (err) {
+      console.warn('[agent] list-sessions failed:', err)
+      return []
+    }
+  })
+
+  /** Resume a past session: dispose the live one, reopen from its JSONL, replay messages. */
+  ipcMain.handle('agent:resume-session', async (e, sessionFile: string) => {
+    const deck = tabDeck.get(e.sender.id)
+    if (!deck) return { ok: false, error: 'unbound' }
+    const file = String(sessionFile ?? '')
+    // only files inside this deck's own sessions dir are resumable
+    if (!file.startsWith(join(deck.workdir, 'sessions')) || !existsSync(file)) {
+      return { ok: false, error: 'session-not-found' }
+    }
+    await disposeDeck(deck.deckKey)
+    let s: AgentSession | null
+    try {
+      s = await ensureSession(deck, file)
+    } catch (err) {
+      // a corrupt/partial JSONL must not kill the tab's chat — fall back to fresh
+      console.warn('[agent] resume failed, starting fresh:', err)
+      try {
+        s = await ensureSession(deck)
+      } catch {
+        s = null
+      }
+      if (!s) return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    if (!s) return { ok: false, error: sdkError ?? 'no-model' }
+    await pushStatus(deck.deckKey)
+    return { ok: true, messages: sanitizeMessages(s.messages as unknown[]) }
   })
 
   // ── Provider key management (settings UI) ─────────────────────────────
@@ -479,7 +719,7 @@ export function registerAgentIpc(): void {
     const reg = stores.modelRegistry
     const all = reg.getAll()
     const configs = providerConfigs()
-    const current = session?.model ?? pickModel(reg)
+    const current = [...live.values()][0]?.model ?? pickModel(reg)
     const oauthIds = new Set(stores.authStorage.getOAuthProviders().map((p) => p.id))
     /** how the provider authenticates: subscription OAuth / AWS creds / plain key */
     const authKind = (id: string): 'oauth' | 'aws' | 'api_key' =>
@@ -578,7 +818,7 @@ export function registerAgentIpc(): void {
     const m = modelId ? stores.modelRegistry.find(provider, modelId) : undefined
     if (!m) return { ok: false, error: 'unknown-model' }
     updateAppSettings({ agentModel: { provider, id: m.id } })
-    if (session) await session.setModel(m)
+    for (const sess of live.values()) await sess.setModel(m)
     broadcast('agent:status', await getStatus())
     return { ok: true }
   })

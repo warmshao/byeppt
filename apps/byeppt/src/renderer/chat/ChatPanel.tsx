@@ -13,7 +13,7 @@
  * history snapshot flow collapses each run's deck edits into one rollback point.
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { AgentAttachment, AgentEventPayload, AgentStatus } from '../../shared/ipc'
+import type { AgentAttachment, AgentEventPayload, AgentSessionSummary, AgentStatus } from '../../shared/ipc'
 import { useI18n } from '../i18n/locale'
 import type { ClarifyQuestion } from '../agent/deck-access'
 import { getDeckAccess } from '../agent/deck-access'
@@ -100,6 +100,71 @@ function toolResultText(result: unknown): string {
 const DISPLAY_CAP = 6000
 const cap = (s: string) => (s.length > DISPLAY_CAP ? `${s.slice(0, DISPLAY_CAP)}\n…` : s)
 
+/**
+ * Rebuild display rows from a resumed session's message list. Tool calls come
+ * from assistant content blocks (toolCall) matched with the following
+ * toolResult messages; everything renders settled (no streaming).
+ */
+function messagesToRows(messages: unknown[]): ChatRow[] {
+  const rows: ChatRow[] = []
+  const toolRowByCallId = new Map<string, string>()
+  for (const m of messages) {
+    const msg = m as {
+      role?: string
+      content?: unknown
+      toolCallId?: string
+      toolName?: string
+      isError?: boolean
+    } | null
+    if (!msg) continue
+    if (msg.role === 'user') {
+      const { text } = messageParts(msg)
+      if (text.trim()) rows.push({ id: nextId(), kind: 'user', text })
+    } else if (msg.role === 'assistant') {
+      const { text, thinking } = messageParts(msg)
+      if (text.trim() || thinking.trim()) {
+        rows.push({ id: nextId(), kind: 'assistant', text, ...(thinking ? { thinking } : {}) })
+      }
+      if (Array.isArray(msg.content)) {
+        for (const b of msg.content as Array<Record<string, unknown>>) {
+          if (b?.type !== 'toolCall' || !b.name) continue
+          const id = nextId()
+          if (b.id) toolRowByCallId.set(String(b.id), id)
+          const args = b.arguments ?? b.args
+          rows.push({
+            id,
+            kind: 'tool',
+            toolName: String(b.name),
+            toolArgs: prettyArgs(args),
+            toolSummary: toolArgsSummary(args),
+            text: '',
+            streaming: false,
+          })
+        }
+      }
+    } else if (msg.role === 'toolResult') {
+      const out = cap(toolResultText(msg))
+      const isError = msg.isError === true
+      const rowId = toolRowByCallId.get(String(msg.toolCallId ?? ''))
+      const i = rowId ? rows.findIndex((r) => r.id === rowId) : -1
+      if (i >= 0) {
+        rows[i] = { ...rows[i]!, toolResult: out, isError }
+      } else {
+        rows.push({
+          id: nextId(),
+          kind: 'tool',
+          toolName: String(msg.toolName ?? 'tool'),
+          text: '',
+          streaming: false,
+          toolResult: out,
+          isError,
+        })
+      }
+    }
+  }
+  return rows
+}
+
 /** one-line args summary for the collapsed tool card header */
 function toolArgsSummary(args: unknown): string {
   if (!args || typeof args !== 'object') return ''
@@ -118,6 +183,16 @@ function toolArgsSummary(args: unknown): string {
 
 function prettyArgs(args: unknown): string {
   if (args == null) return ''
+  // objects: one field per block; multi-line strings (code, scripts) stay raw
+  // instead of JSON-escaped \n soup
+  if (typeof args === 'object' && !Array.isArray(args)) {
+    const parts: string[] = []
+    for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.includes('\n')) parts.push(`${k}:\n${v}`)
+      else parts.push(`${k}: ${JSON.stringify(v) ?? String(v)}`)
+    }
+    return cap(parts.join('\n\n'))
+  }
   try {
     return cap(JSON.stringify(args, null, 2))
   } catch {
@@ -236,7 +311,7 @@ function ToolCard({ row }: { row: ChatRow }) {
               <code>{row.toolArgs}</code>
             </pre>
           )}
-          {!row.streaming && row.toolResult && (
+          {row.toolResult && (
             <pre className={`tool-card-block out${row.isError ? ' err' : ''}`}>
               <code>{row.toolResult}</code>
             </pre>
@@ -563,6 +638,12 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   const skipUserEchoRef = useRef(false)
   /** stable chat id for an unsaved deck (materials folder until the file hits disk) */
   const tempChatIdRef = useRef(`unsaved-${Date.now()}`)
+  /** this tab's deck identity, assigned by 'agent:bind' (chatId); events for
+   *  other decks carry a different deckKey and are ignored */
+  const deckKeyRef = useRef<string | null>(null)
+  /** history popover: past sessions of THIS deck (newest first) */
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyItems, setHistoryItems] = useState<AgentSessionSummary[] | null>(null)
   /** A run-level history batch is open (begin at agent_start, collapse at agent_end) */
   const historyBatchActiveRef = useRef(false)
   /** Rollback point id for the last run that edited the deck (drives the rollback button) */
@@ -585,10 +666,36 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     access?.applyDeck(restored, Math.min(access.getCurrent(), restored.length - 1))
   }, [])
 
+  // Bind this panel to its deck (per-tab session routing + private workdir).
+  // Re-bind when the deck's file path changes — an unsaved deck that just got
+  // saved is folded into the file's chat on the main side.
+  useEffect(() => {
+    let cancelled = false
+    void window.agentApi
+      .bind({ filePath, tempChatId: tempChatIdRef.current })
+      .then((res) => {
+        if (!cancelled && res.ok && res.deckKey) deckKeyRef.current = res.deckKey
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [filePath])
+
   useEffect(() => {
     void window.agentApi.status().then(setStatus)
-    const offStatus = window.agentApi.onStatus(setStatus)
+    const offStatus = window.agentApi.onStatus((s: AgentStatus) => {
+      // deck-scoped pushes for other tabs are ignored; global (model/settings)
+      // broadcasts carry no deckKey — re-fetch so `streaming` stays deck-local
+      if (s.deckKey) {
+        if (s.deckKey !== deckKeyRef.current) return
+        setStatus(s)
+      } else {
+        void window.agentApi.status().then(setStatus)
+      }
+    })
     const offEvent = window.agentApi.onEvent((evt: AgentEventPayload) => {
+      // per-tab streams: events tagged for another deck are not ours
+      if (evt.deckKey && evt.deckKey !== deckKeyRef.current) return
       // Kernel env bootstrap progress (first-run uv / venv / python-skill install)
       if (evt.type === 'byeppt:kernel-progress') {
         setKernelProgress(typeof evt.message === 'string' ? evt.message : '正在准备 Python 环境…')
@@ -697,6 +804,15 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
               text: '',
               streaming: true,
             })
+            break
+          }
+          case 'tool_execution_update': {
+            // stream partial output into the card so long ipython runs show progress
+            const id = activeToolsRef.current.get(String(evt.toolCallId))
+            if (id) {
+              const partial = toolResultText(evt.partialResult)
+              if (partial) mutate(id, (r) => ({ ...r, toolResult: cap(partial) }))
+            }
             break
           }
           case 'tool_execution_end': {
@@ -847,11 +963,138 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     void window.agentApi.respondUi(req.reqId, value ?? null)
   }, [])
 
+  /** Reset all stream-local row state (new session / resume). */
+  const resetStreamState = useCallback(() => {
+    activeAssistantRef.current = null
+    activeToolsRef.current.clear()
+    skipUserEchoRef.current = false
+    setSnapshotId(null)
+    setUiRequest(null)
+    settleClarification({ answers: '', cancelled: true })
+  }, [])
+
+  const onNewSession = useCallback(async () => {
+    setHistoryOpen(false)
+    resetStreamState()
+    setRows([])
+    const res = await window.agentApi.newSession()
+    if (!res.ok && res.error) {
+      setRows((prev) => [...prev, { id: nextId(), kind: 'error', text: res.error! }])
+    }
+  }, [resetStreamState])
+
+  const toggleHistory = useCallback(async () => {
+    if (historyOpen) {
+      setHistoryOpen(false)
+      return
+    }
+    setHistoryOpen(true)
+    setHistoryItems(null)
+    setHistoryItems(await window.agentApi.listSessions())
+  }, [historyOpen])
+
+  const onResumeSession = useCallback(
+    async (sessionFile: string) => {
+      setHistoryOpen(false)
+      resetStreamState()
+      const res = await window.agentApi.resumeSession(sessionFile)
+      if (res.ok && Array.isArray(res.messages)) {
+        setRows(messagesToRows(res.messages))
+      } else if (!res.ok) {
+        setRows((prev) => [
+          ...prev,
+          { id: nextId(), kind: 'error', text: res.error ?? 'resume-failed' },
+        ])
+      }
+    },
+    [resetStreamState],
+  )
+
   const streaming = status?.streaming ?? false
   const canSend = !!(draft.trim() || pending.length)
 
   return (
     <div className="chat-panel">
+      <div className="chat-header">
+        <button
+          type="button"
+          className="chat-icon-btn"
+          disabled={streaming}
+          data-tip={t('chatHistory')}
+          aria-label={t('chatHistory')}
+          onClick={() => void toggleHistory()}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M3 12a9 9 0 1 0 3-6.7" />
+            <path d="M3 4v5h5" />
+            <path d="M12 7v5l3.5 2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="chat-icon-btn"
+          disabled={streaming}
+          data-tip={t('chatNewSession')}
+          aria-label={t('chatNewSession')}
+          onClick={() => void onNewSession()}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+        </button>
+      </div>
+      {historyOpen && (
+        <>
+          <div className="chat-pop-backdrop" onClick={() => setHistoryOpen(false)} />
+          <div className="chat-history-pop">
+            {historyItems === null ? (
+              <div className="chat-history-empty">
+                <span className="tool-spinner" aria-hidden />
+              </div>
+            ) : historyItems.length === 0 ? (
+              <div className="chat-history-empty">{t('chatHistoryEmpty')}</div>
+            ) : (
+              historyItems.map((item) => (
+                <button
+                  key={item.sessionFile}
+                  type="button"
+                  className="chat-history-item"
+                  onClick={() => void onResumeSession(item.sessionFile)}
+                >
+                  <span className="chat-history-item-title">
+                    {item.title || new Date(item.modifiedAt).toLocaleString()}
+                  </span>
+                  <span className="chat-history-item-meta">
+                    {new Date(item.modifiedAt).toLocaleString()} · {item.messageCount}
+                    {item.current ? ` · ${t('chatCurrent')}` : ''}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
       {kernelProgress && <div className="chat-kernel-progress">{kernelProgress}</div>}
       <div className="chat-list" ref={listRef}>
         {status && !status.ready && (
@@ -880,14 +1123,15 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
           }
           if (row.kind === 'tool') return <ToolCard key={row.id} row={row} />
           if (row.kind === 'assistant') {
+            // tool-call-only turns produce assistant messages with no visible
+            // text — skip them instead of painting empty rows / stray spinners;
+            // separator-only commentary (────── / bare ```) goes too
+            const visibleText = row.text.replace(/[─━—–\-=_*·\s`]/g, '')
+            if (!visibleText && !row.thinking) return null
             return (
               <div key={row.id} className="chat-row chat-assistant">
                 {row.thinking && <ThinkingBlock text={row.thinking} streaming={row.streaming} />}
-                {row.text ? (
-                  <div className="md">{renderMarkdown(row.text)}</div>
-                ) : (
-                  row.streaming && !row.thinking && <span className="tool-spinner" aria-hidden />
-                )}
+                {visibleText ? <div className="md">{renderMarkdown(row.text)}</div> : null}
               </div>
             )
           }
@@ -909,6 +1153,13 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
             </div>
           )
         })}
+        {streaming && (
+          /* one working indicator for the whole run (Claude Code style) — no
+             per-row fallback spinners that can linger on stale rows */
+          <div className="chat-working">
+            <span className="tool-spinner" aria-hidden />
+          </div>
+        )}
         {clarification && (
           <div className="ai-clarify-chip" role="status">
             <span className="ai-clarify-chip-eyebrow">{t('aiClarifyTitle')}</span>

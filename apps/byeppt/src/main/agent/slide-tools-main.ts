@@ -25,8 +25,14 @@ function labelOf(name: string): string {
  * Build the ToolDefinition array for createAgentSession's customTools.
  * Async because typebox is ESM-only (the main bundle is CJS; same dynamic-import
  * pattern as the vsurf SDK itself).
+ *
+ * `resolveWcId` pins deck-bridge invocations to the session's owning tab
+ * (per-tab sessions); without it tools hit whatever slides window is active.
  */
-export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefinition[]> {
+export async function buildSlideCustomTools(
+  sdk: VsurfSdk,
+  resolveWcId?: () => number | undefined,
+): Promise<ToolDefinition[]> {
   const { Type } = await import('typebox')
   const tools: ToolDefinition[] = SLIDE_TOOL_DEFS.map((def) =>
     sdk.defineTool({
@@ -42,6 +48,7 @@ export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefiniti
             def.name,
             (params ?? {}) as Record<string, unknown>,
             signal,
+            resolveWcId?.(),
           )
           const text = r.isError ? `Error: ${r.output}` : r.output
           return {
@@ -62,9 +69,9 @@ export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefiniti
       },
     }),
   )
-  tools.push(buildViewSlideTool(sdk, Type))
-  tools.push(buildGenerateImageTool(sdk, Type))
-  tools.push(buildEditImageTool(sdk, Type))
+  tools.push(buildViewSlideTool(sdk, Type, resolveWcId))
+  tools.push(buildGenerateImageTool(sdk, Type, resolveWcId))
+  tools.push(buildEditImageTool(sdk, Type, resolveWcId))
   return tools
 }
 
@@ -77,6 +84,7 @@ export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefiniti
 function buildViewSlideTool(
   sdk: VsurfSdk,
   Type: typeof import('typebox').Type,
+  resolveWcId?: () => number | undefined,
 ): ToolDefinition {
   return sdk.defineTool({
     name: 'view_slide',
@@ -99,6 +107,7 @@ function buildViewSlideTool(
           'view_slide',
           p.slideIndex === undefined ? {} : { slideIndex: p.slideIndex },
           signal,
+          resolveWcId?.(),
         )
         if (r.isError || !r.image) {
           return {
@@ -137,6 +146,7 @@ async function placeOnSlide(
   path: string,
   p: PlaceParams,
   signal?: AbortSignal,
+  resolveWcId?: () => number | undefined,
 ): Promise<{ placed: string; mutated: boolean }> {
   if (p.slideIndex === undefined) return { placed: '', mutated: false }
   try {
@@ -154,6 +164,7 @@ async function placeOnSlide(
         ...(p.hPx !== undefined ? { hPx: p.hPx } : {}),
       },
       signal,
+      resolveWcId?.(),
     )
     return {
       placed: r.isError ? `\nPlacement failed: ${r.output}` : `\nPlaced on slide ${p.slideIndex + 1}.`,
@@ -172,6 +183,7 @@ async function placeOnSlide(
 function buildGenerateImageTool(
   sdk: VsurfSdk,
   Type: typeof import('typebox').Type,
+  resolveWcId?: () => number | undefined,
 ): ToolDefinition {
   return sdk.defineTool({
     name: 'generate_image',
@@ -218,7 +230,7 @@ function buildGenerateImageTool(
           details: { summary: undefined, isError: true, mutated: false },
         }
       }
-      const { placed, mutated } = await placeOnSlide(result.path, p, signal)
+      const { placed, mutated } = await placeOnSlide(result.path, p, signal, resolveWcId)
       return {
         content: [
           {
@@ -241,6 +253,7 @@ function buildGenerateImageTool(
 function buildEditImageTool(
   sdk: VsurfSdk,
   Type: typeof import('typebox').Type,
+  resolveWcId?: () => number | undefined,
 ): ToolDefinition {
   return sdk.defineTool({
     name: 'edit_image',
@@ -298,7 +311,7 @@ function buildEditImageTool(
           details: { summary: undefined, isError: true, mutated: false },
         }
       }
-      const { placed, mutated } = await placeOnSlide(result.path, p, signal)
+      const { placed, mutated } = await placeOnSlide(result.path, p, signal, resolveWcId)
       return {
         content: [
           {

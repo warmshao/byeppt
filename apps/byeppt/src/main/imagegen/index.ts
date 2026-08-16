@@ -174,8 +174,10 @@ export async function editImage(req: ImageGenRequest): Promise<ImageGenResult> {
 }
 
 /**
- * Connectivity check for the settings UI: authenticated read of the configured
- * model's metadata (no image generated, no tokens spent beyond the ping).
+ * Connectivity check for the settings UI. OpenAI-compatible relays commonly do
+ * not implement per-model metadata reads (some even return HTTP 200 with an
+ * error body), so exercise the same generation path used by the product with a
+ * minimal low-quality request.
  */
 export async function testImageGenConnection(
   provider: ImageGenProvider,
@@ -191,11 +193,13 @@ export async function testImageGenConnection(
       })
       if (!resp.ok) throw new Error(`gemini ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
     } else {
-      const base = (cfg.baseUrl || process.env.OPENAI_BASE_URL || IMAGE_GEN_PROVIDERS.openai.defaultBaseUrl).replace(/\/$/, '')
-      const resp = await fetch(`${base}/v1/models/${encodeURIComponent(cfg.model)}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      await generateOpenAIImage({
+        prompt: 'connectivity test',
+        model: cfg.model,
+        baseUrl: cfg.baseUrl,
+        size: '1024x1024',
+        quality: 'low',
       })
-      if (!resp.ok) throw new Error(`openai ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
     }
     return { ok: true }
   } catch (err) {

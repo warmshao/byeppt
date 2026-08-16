@@ -43,7 +43,13 @@ function ensureListener(): void {
 }
 
 /** Pick the slides renderer to run tools against; null when none is open. */
-function targetWebContents(): WebContents | null {
+function targetWebContents(preferId?: number): WebContents | null {
+  // The session's owning tab wins — a run started from tab A must keep editing
+  // tab A's deck even when the user switches focus mid-run
+  if (preferId !== undefined) {
+    const wc = webContents.fromId(preferId)
+    if (wc && !wc.isDestroyed() && sessions.has(preferId)) return wc
+  }
   const active = windowRefs.activeWebContents
   if (active && !active.isDestroyed() && sessions.has(active.id)) return active
   if (sessions.size === 1) {
@@ -64,16 +70,19 @@ export interface DeckInvokeOutcome {
 }
 
 /**
- * Run one slide tool in the active slides renderer. Throws when no slides
- * window/tab is open, on timeout, on abort, or when the renderer reports an
- * execution-level error (tool-level failures come back as isError results).
+ * Run one slide tool in a slides renderer. `preferWcId` pins the invocation to
+ * the session's owning tab; without it (or when that tab is gone) the active
+ * slides window is used. Throws when no slides window/tab is open, on timeout,
+ * on abort, or when the renderer reports an execution-level error (tool-level
+ * failures come back as isError results).
  */
 export function invokeOnActiveSlidesWindow(
   tool: string,
   args: Record<string, unknown>,
   signal?: AbortSignal,
+  preferWcId?: number,
 ): Promise<DeckInvokeOutcome> {
-  const wc = targetWebContents()
+  const wc = targetWebContents(preferWcId)
   if (!wc) {
     return Promise.reject(
       new Error('No slides window is open — open or create a presentation first'),

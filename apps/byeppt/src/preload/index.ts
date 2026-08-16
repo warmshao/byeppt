@@ -321,6 +321,10 @@ const agentApi: AgentApi = {
   abort: () => ipcRenderer.invoke('agent:abort'),
   setModel: (sel: { provider: string; id: string }) => ipcRenderer.invoke('agent:set-model', sel),
   newSession: () => ipcRenderer.invoke('agent:new-session'),
+  bind: (args: { filePath: string | null; tempChatId?: string }) =>
+    ipcRenderer.invoke('agent:bind', args),
+  listSessions: () => ipcRenderer.invoke('agent:list-sessions'),
+  resumeSession: (sessionFile: string) => ipcRenderer.invoke('agent:resume-session', sessionFile),
   respondUi: (reqId: string, value: unknown) =>
     ipcRenderer.invoke('agent:ui-respond', reqId, value),
   openModelSettings: async () => {

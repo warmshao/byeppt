@@ -38,6 +38,41 @@ function envFilePath(): string {
   return join(app.getPath('userData'), 'agent', '.env')
 }
 
+/** Compose the .env content from current Settings (managed keys only; `kept` = user lines). */
+async function buildEnvContent(kept: string[]): Promise<string> {
+  const provider = activeImageGenProvider()
+  if (provider) {
+    const cfg = resolveImageGenConfig(provider)
+    const key = await imageGenApiKey(provider)
+    const lines: string[] = [`IMAGE_BACKEND=${provider}`]
+    const prefix = provider === 'gemini' ? 'GEMINI' : 'OPENAI'
+    if (key) lines.push(`${prefix}_API_KEY=${key}`)
+    if (cfg.baseUrl) lines.push(`${prefix}_BASE_URL=${cfg.baseUrl}`)
+    if (cfg.model) lines.push(`${prefix}_MODEL=${cfg.model}`)
+    kept.push(...lines)
+  }
+  return kept.length ? `${kept.join('\n')}\n` : ''
+}
+
+/** Keep only non-managed lines from an existing .env (user additions like PEXELS_API_KEY survive). */
+function keptLines(path: string): string[] {
+  if (!existsSync(path)) return []
+  const kept: string[] = []
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const m = /^([A-Z0-9_]+)\s*=/.exec(line)
+    if (m && (MANAGED_KEYS as readonly string[]).includes(m[1]!)) continue
+    kept.push(line)
+  }
+  while (kept.length && kept[kept.length - 1]!.trim() === '') kept.pop()
+  return kept
+}
+
+function writeEnvFile(path: string, content: string): void {
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, content, { mode: 0o600 })
+  renameSync(tmp, path)
+}
+
 /**
  * Rewrite the managed lines of `<userData>/agent/.env` from the current
  * Settings. Removes them when no backend is active so the kernel never sees
@@ -46,33 +81,23 @@ function envFilePath(): string {
  */
 export async function syncImageGenEnvFile(): Promise<void> {
   try {
-    const path = envFilePath()
-    const kept: string[] = []
-    if (existsSync(path)) {
-      for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-        const m = /^([A-Z0-9_]+)\s*=/.exec(line)
-        if (m && (MANAGED_KEYS as readonly string[]).includes(m[1]!)) continue
-        kept.push(line)
-      }
-    }
-    while (kept.length && kept[kept.length - 1]!.trim() === '') kept.pop()
-
-    const provider = activeImageGenProvider()
-    if (provider) {
-      const cfg = resolveImageGenConfig(provider)
-      const key = await imageGenApiKey(provider)
-      const lines: string[] = [`IMAGE_BACKEND=${provider}`]
-      const prefix = provider === 'gemini' ? 'GEMINI' : 'OPENAI'
-      if (key) lines.push(`${prefix}_API_KEY=${key}`)
-      if (cfg.baseUrl) lines.push(`${prefix}_BASE_URL=${cfg.baseUrl}`)
-      if (cfg.model) lines.push(`${prefix}_MODEL=${cfg.model}`)
-      kept.push(...lines)
-    }
-
-    const tmp = `${path}.tmp`
-    writeFileSync(tmp, kept.length ? `${kept.join('\n')}\n` : '', { mode: 0o600 })
-    renameSync(tmp, path)
+    writeEnvFile(envFilePath(), await buildEnvContent(keptLines(envFilePath())))
   } catch (err) {
     console.warn('[imagegen] failed to sync kernel .env:', err)
+  }
+}
+
+/**
+ * Mirror the same managed keys into a per-deck agent workdir. Each tab's agent
+ * session runs its kernel with cwd = the deck's workdir, and image_gen.py reads
+ * the first `.env` there — without this the batch image path would see no
+ * backend (or a stale one) for that deck. Never throws.
+ */
+export async function syncImageGenEnvFileTo(workdir: string): Promise<void> {
+  try {
+    const path = join(workdir, '.env')
+    writeEnvFile(path, await buildEnvContent(keptLines(path)))
+  } catch (err) {
+    console.warn('[imagegen] failed to sync deck workdir .env:', err)
   }
 }

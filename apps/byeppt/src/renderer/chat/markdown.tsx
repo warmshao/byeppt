@@ -112,11 +112,18 @@ export function renderMarkdown(text: string): ReactNode {
   }
   while ((m = fenceRe.exec(text))) {
     pushFlow(text.slice(last, m.index))
-    nodes.push(
-      <pre key={k()} className="md-pre">
-        <code>{m[2]!.replace(/\n$/, '')}</code>
-      </pre>,
-    )
+    const code = m[2]!.replace(/\n$/, '')
+    if (code.trim()) {
+      nodes.push(
+        <pre key={k()} className="md-pre">
+          <code>{code}</code>
+        </pre>,
+      )
+    } else {
+      // some models use bare ``` pairs as decorative separators — a rule, not
+      // an empty code pill
+      nodes.push(<div key={k()} className="md-hr" />)
+    }
     last = m.index + m[0].length
   }
   pushFlow(text.slice(last))

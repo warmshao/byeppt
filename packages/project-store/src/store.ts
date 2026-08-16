@@ -7,6 +7,8 @@
  *     project.json
  *     chats/
  *       <chat-id>.jsonl
+ *     attachments/<chat-id>/   — per-chat materials (AI panel uploads)
+ *     agent/<chat-id>/         — per-chat agent workspace (vsurf sessions, kernel cwd)
  *
  * Design principles:
  * - No Electron dependency; the userData path is injected by the caller
@@ -111,6 +113,15 @@ export class ProjectStore {
    */
   attachmentsDir(projectId: string, chatId: string): string {
     return join(this.projectDir(projectId), 'attachments', chatId)
+  }
+
+  /**
+   * Per-chat agent workspace: the deck tab's vsurf session files, kernel cwd
+   * artifacts and imagegen .env — everything the per-tab agent touches on disk.
+   * Follows the chat on rebind/move (same rule as attachments).
+   */
+  agentWorkDir(projectId: string, chatId: string): string {
+    return join(this.projectDir(projectId), 'agent', chatId)
   }
 
   // ── seq counters (in-memory cache, initialized from JSONL line count on first read) ──
@@ -452,27 +463,41 @@ export class ProjectStore {
     // file-by-file (never overwriting) when the target already has one
     const srcAttach = this.attachmentsDir(fromProjectId, fromId)
     const dstAttach = this.attachmentsDir(toProjectId, toId)
+    this.moveDirMerging(srcAttach, dstAttach, 'attachments')
+
+    // The per-chat agent workspace (vsurf sessions, kernel artifacts) follows too
+    this.moveDirMerging(this.agentWorkDir(fromProjectId, fromId), this.agentWorkDir(toProjectId, toId), 'agent workdir')
+  }
+
+  /** Rename src dir onto dst; when dst exists, merge recursively without overwriting. */
+  private moveDirMerging(src: string, dst: string, label: string): void {
     try {
-      if (existsSync(srcAttach)) {
-        if (!existsSync(dstAttach)) {
-          ensureDir(dirname(dstAttach))
-          renameSync(srcAttach, dstAttach)
-        } else {
-          for (const f of readdirSync(srcAttach)) {
-            let target = join(dstAttach, f)
-            let n = 1
-            while (existsSync(target)) target = join(dstAttach, `${n++}-${f}`)
-            renameSync(join(srcAttach, f), target)
-          }
-          try {
-            rmdirSync(srcAttach)
-          } catch {
-            /* non-empty leftovers are fine */
-          }
+      if (!existsSync(src)) return
+      if (!existsSync(dst)) {
+        ensureDir(dirname(dst))
+        renameSync(src, dst)
+        return
+      }
+      ensureDir(dst)
+      for (const f of readdirSync(src)) {
+        const from = join(src, f)
+        const target = join(dst, f)
+        if (statSync(from).isDirectory()) {
+          this.moveDirMerging(from, target, label)
+          continue
         }
+        let to = target
+        let n = 1
+        while (existsSync(to)) to = join(dst, `${n++}-${f}`)
+        renameSync(from, to)
+      }
+      try {
+        rmdirSync(src)
+      } catch {
+        /* non-empty leftovers are fine */
       }
     } catch (err) {
-      console.warn('[project-store] attachments move failed:', err)
+      console.warn(`[project-store] ${label} move failed:`, err)
     }
   }
 
