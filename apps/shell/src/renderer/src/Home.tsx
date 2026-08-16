@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import logoLockup from './assets/byeppt-logo.svg'
 import iconPptx from './assets/file-pptx.svg'
 import type {
+  AgentSettingsApi,
   HomeApi,
   ProjectHomeApi,
   ProjectSummaryEntry,
@@ -17,6 +18,7 @@ declare global {
   interface Window {
     aiOffice: HomeApi
     aiOfficeProject?: ProjectHomeApi
+    aiOfficeAgent?: AgentSettingsApi
   }
 }
 

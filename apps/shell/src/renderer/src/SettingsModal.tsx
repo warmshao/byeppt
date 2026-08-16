@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useI18n } from './locale'
 import type { StringKey } from './locale'
+import { ImageGenPane, ProvidersPane } from './AgentSettings'
 import type { UiTheme } from '../../shared/home-api'
 import './settings.css'
 
@@ -40,10 +41,12 @@ const THEME_OPTIONS = [
   { value: 'dark', labelKey: 'themeDark' },
 ] as const satisfies readonly { value: UiTheme; labelKey: StringKey }[]
 
-type SectionId = 'general' | 'about'
+type SectionId = 'general' | 'providers' | 'imagegen' | 'about'
 
 const SECTIONS: readonly { id: SectionId; labelKey: StringKey }[] = [
   { id: 'general', labelKey: 'setSecGeneral' },
+  { id: 'providers', labelKey: 'setSecProviders' },
+  { id: 'imagegen', labelKey: 'setSecImageGen' },
   { id: 'about', labelKey: 'setSecAbout' },
 ]
 
@@ -59,6 +62,34 @@ function SectionIcon({ id }: { id: SectionId }) {
         />
         <circle cx="11.5" cy="5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
         <circle cx="4.5" cy="11" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    )
+  }
+  if (id === 'providers') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M8 5.2v2.2l1.6 1.6"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
+  if (id === 'imagegen') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="5.6" cy="6.6" r="1.2" stroke="currentColor" strokeWidth="1.1" />
+        <path
+          d="M2.8 11.6l3-2.8 2.2 2 2.4-2.2 2.8 2.6"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
@@ -243,6 +274,8 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 />
               </>
             )}
+            {section === 'providers' && <ProvidersPane />}
+            {section === 'imagegen' && <ImageGenPane />}
             {section === 'about' && (
               <>
                 <h3 className="set-pane-title">{t('setSecAbout')}</h3>

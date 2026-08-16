@@ -184,3 +184,47 @@ export const PROJECT_CHANNELS = {
   moveFile: 'project:moveFile',
   timeline: 'project:timeline',
 } as const
+
+// ── Agent / image-generation settings (bridged to the slides main process) ──
+
+export interface AgentProviderRow {
+  id: string
+  name: string
+  hasKey: boolean
+  /** where the current credential came from: stored | environment | ... */
+  source?: string
+}
+
+export interface AgentModelRow {
+  provider: string
+  id: string
+  name: string
+}
+
+export interface ImageGenProviderRow {
+  id: 'gemini' | 'openai'
+  label: string
+  defaultModel: string
+}
+
+/** AI settings bridge: LLM provider keys (vsurf AuthStorage) + image-gen prefs. */
+export interface AgentSettingsApi {
+  listProviders(): Promise<AgentProviderRow[]>
+  setProviderKey(provider: string, key: string): Promise<{ ok: boolean; error?: string }>
+  clearProviderKey(provider: string): Promise<{ ok: boolean }>
+  /** Minimal live ping against the provider with the stored key */
+  testProviderKey(provider: string): Promise<{ ok: boolean; error?: string }>
+  getModel(): Promise<AgentModelRow | null>
+  /** Models with configured credentials (selectable as the agent's model) */
+  listModels(): Promise<AgentModelRow[]>
+  setModel(sel: { provider: string; id: string }): Promise<{ ok: boolean; error?: string }>
+  imageGenStatus(): Promise<{
+    providers: ImageGenProviderRow[]
+    keys: Record<string, boolean>
+  }>
+  getImageGenSettings(): Promise<{ provider?: 'gemini' | 'openai'; model?: string }>
+  setImageGenSettings(s: {
+    provider?: 'gemini' | 'openai'
+    model?: string
+  }): Promise<{ ok: boolean }>
+}

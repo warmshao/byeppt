@@ -4,6 +4,11 @@ description: Deterministic selection among PPT Master's four top-level artifact 
 
 # Routing Rules
 
+> **byeppt adaptation**: byeppt collapses these four routes to three (Generate /
+> Beautify / Edit) in [`../SKILL.md`](../SKILL.md); `template-fill-pptx`,
+> `native-enhance-pptx`, `create-template`, and `image-to-pptx` are v2 here.
+> See [`byeppt-notes.md`](./byeppt-notes.md) for the tool mapping.
+
 Route selection authority for PPT Master. Select exactly one top-level route, then activate only the child workflows, profiles, and stages owned by that route.
 
 **Hard rule**: If this file conflicts with a route summary elsewhere in the

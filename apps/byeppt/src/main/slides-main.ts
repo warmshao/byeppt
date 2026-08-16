@@ -235,6 +235,7 @@ import { buildPrintDocumentHtml } from '../shared/print-html'
 import { tm } from './i18n-main'
 import { readAppSettings, updateAppSettings } from './app-settings'
 import { registerAgentIpc } from './agent/session'
+import { registerImageGenIpc } from './imagegen/ipc'
 import { tiffToPng } from './tiff-decode'
 import {
   beginHistoryBatch,
@@ -3548,6 +3549,7 @@ html, body { margin: 0; padding: 0; }
   // ── Presenter-view multi-screen show (registered inside registerSlidesIpc: shell
   // aggregate mode only calls this function) ──
   registerPresenterIpc()
+  registerImageGenIpc()
 }
 
 // ── project-store IPC (standalone mode) ───────────────────────────────────

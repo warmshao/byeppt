@@ -6,6 +6,7 @@
  */
 import { app } from 'electron'
 import { join } from 'node:path'
+import { readAppSettings } from '../app-settings'
 import { generateGeminiImage } from './gemini'
 import { generateOpenAIImage } from './openai'
 
@@ -44,8 +45,10 @@ export const IMAGE_GEN_KEY_PROVIDER: Record<ImageGenProvider, string> = {
 }
 
 export async function generateImage(req: ImageGenRequest): Promise<ImageGenResult> {
-  const provider: ImageGenProvider = req.provider ?? 'gemini'
-  const model = req.model || IMAGE_GEN_DEFAULTS[provider].model
+  const saved = readAppSettings().imageGen
+  const provider: ImageGenProvider =
+    req.provider ?? (saved?.provider === 'openai' ? 'openai' : 'gemini')
+  const model = req.model || saved?.model || IMAGE_GEN_DEFAULTS[provider].model
   try {
     const bytes =
       provider === 'gemini'

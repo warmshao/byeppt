@@ -264,3 +264,65 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ── Providers / image-gen panes ─────────────────────────────────────── */
+.set-provider {
+  align-items: flex-start;
+}
+.set-provider-text {
+  min-width: 0;
+  flex: 1;
+}
+.set-provider-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-provider-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.set-key-badge {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.set-key-missing {
+  font-size: 11px;
+  color: var(--danger);
+}
+.set-key-edit {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.set-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 10px;
+  font-family: ui-monospace, monospace;
+}
+.set-input:focus {
+  outline: none;
+  border-color: var(--accent, var(--border-strong));
+}
+.set-btn-danger {
+  color: var(--danger);
+}
+.set-ok {
+  color: var(--text-secondary);
+}
+.set-err {
+  color: var(--danger);
+}
+.set-imagegen-hint {
+  margin-bottom: 8px;
+}

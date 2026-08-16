@@ -4,6 +4,12 @@ description: Default Generate PPTX authority for source intake, planning, SVG au
 
 # Generate PPTX Route
 
+> **byeppt adaptation**: this file is ppt-master's original CLI procedure. In
+> byeppt, SKILL.md Route A and [`byeppt-notes.md`](./byeppt-notes.md) override
+> its mechanics (Confirm-UI → `ask_clarification`, SVG pages → native slide
+> tools, quality gates → the `execute_slide_script` audit loop). Read it for
+> design discipline only.
+
 > Load only after [`routing.md`](./routing.md) selects Default Generate or its
 > Beautify profile. This file owns that runtime's Step 1–7 sequence, gates, role
 > switching, and mandatory commands. Explicit Quick loads its own profile instead.

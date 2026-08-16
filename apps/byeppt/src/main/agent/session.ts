@@ -13,6 +13,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
+import { buildSlideCustomTools } from './slide-tools-main'
 
 type VsurfSdk = typeof import('@warmshao/vsurf')
 type AgentSession = import('@warmshao/vsurf').AgentSession
@@ -114,6 +115,9 @@ async function ensureSession(): Promise<AgentSession | null> {
       authStorage: stores.authStorage,
       modelRegistry: stores.modelRegistry,
       model,
+      // Slide-editing tools: each forwards over the deck bridge into the active
+      // slides renderer (see slide-tools-main.ts / deck-bridge.ts)
+      customTools: await buildSlideCustomTools(s),
     })
     created.subscribe((event) => {
       try {
@@ -200,5 +204,65 @@ export function registerAgentIpc(): void {
     await ensureSession()
     broadcast('agent:status', await getStatus())
     return { ok: true }
+  })
+
+  // ── Provider key management (settings UI) ─────────────────────────────
+
+  ipcMain.handle('agent:list-providers', async () => {
+    const stores = await ensureStores()
+    if (!stores) return []
+    const reg = stores.modelRegistry
+    const ids = [...new Set(reg.getAll().map((m) => m.provider))].sort()
+    const rows = []
+    for (const id of ids) {
+      const status = reg.getProviderAuthStatus(id)
+      rows.push({
+        id,
+        name: reg.getProviderDisplayName(id),
+        hasKey: status.configured,
+        source: status.source,
+      })
+    }
+    return rows
+  })
+
+  ipcMain.handle('agent:set-key', async (_e, provider: string, key: string) => {
+    const stores = await ensureStores()
+    if (!stores) return { ok: false, error: sdkError ?? 'sdk-load-failed' }
+    if (!provider || !key.trim()) return { ok: false, error: 'empty-key' }
+    stores.authStorage.set(provider, { type: 'api_key', key: key.trim() })
+    broadcast('agent:status', await getStatus())
+    return { ok: true }
+  })
+
+  ipcMain.handle('agent:clear-key', async (_e, provider: string) => {
+    const stores = await ensureStores()
+    if (!stores) return { ok: false }
+    stores.authStorage.remove(provider)
+    broadcast('agent:status', await getStatus())
+    return { ok: true }
+  })
+
+  ipcMain.handle('agent:test-key', async (_e, provider: string) => {
+    const stores = await ensureStores()
+    if (!stores) return { ok: false, error: sdkError ?? 'sdk-load-failed' }
+    const apiKey = await stores.authStorage.getApiKey(provider)
+    if (!apiKey) return { ok: false, error: 'no-key' }
+    // Ping with the provider's cheapest available model (or any catalog model).
+    const models = stores.modelRegistry.getAvailable().filter((m) => m.provider === provider)
+    const fallback = stores.modelRegistry.getAll().find((m) => m.provider === provider)
+    const model = models[0] ?? fallback
+    if (!model) return { ok: false, error: 'no-model-for-provider' }
+    try {
+      const ai = await import('vsurf-ai')
+      await ai.completeSimple(
+        model,
+        { messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }] },
+        { apiKey, maxTokens: 8 },
+      )
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message.slice(0, 300) : String(err) }
+    }
   })
 }

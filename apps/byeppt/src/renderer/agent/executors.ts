@@ -25,6 +25,8 @@ import { t } from '../i18n/locale'
 
 /** Minimal tool-call shape (the deleted agent-core package defined the original). */
 export interface SlideToolCall {
+  /** Optional call id (tests echo the reference suite's {id, name, input} shape) */
+  id?: string
   name: string
   input: Record<string, unknown>
 }
@@ -830,6 +832,40 @@ async function executeTool(
       access.applySlide(idx, r.slide)
       return {
         output: `Inserted the image on page ${idx + 1}, element id=${r.sourceId}.`,
+        mutated: true,
+        summary: t('aiSumInsertImage', { n: idx + 1 }),
+      }
+    }
+
+    // Internal bridge target (not in SLIDE_TOOL_DEFS): the main-process
+    // generate_image tool places the produced PNG through here.
+    case 'insert_image_bytes': {
+      const idx = Number(call.input.slideIndex)
+      const slide = slides[idx]
+      if (!slide)
+        return fail(t('aiFailInsertImage'), `slideIndex out of range (0-${slides.length - 1})`)
+      const base64 = String(call.input.base64 ?? '')
+      if (!base64) return fail(t('aiFailInsertImage'), 'missing image bytes')
+      // Default box: centered, 60% of slide width, 16:9-ish height
+      const w = Number(call.input.wPx) || Math.round(slide.widthPx * 0.6)
+      const h = Number(call.input.hPx) || Math.round((w * 9) / 16)
+      const x = Number(call.input.xPx) || Math.round((slide.widthPx - w) / 2)
+      const y = Number(call.input.yPx) || Math.round((slide.heightPx - h) / 2)
+      const r = await window.slidesApi.addImageBytes({
+        slideIndex: idx,
+        base64,
+        ext: String(call.input.ext ?? 'png'),
+        xPx: x,
+        yPx: y,
+        wPx: w,
+        hPx: h,
+        fitWidthPx: access.fitWidthPx,
+      })
+      if (!r || 'error' in r)
+        return fail(t('aiFailInsertImage'), 'image insertion failed')
+      access.applySlide(idx, r.slide)
+      return {
+        output: `Placed the generated image on page ${idx + 1}, element id=${r.sourceId}.`,
         mutated: true,
         summary: t('aiSumInsertImage', { n: idx + 1 }),
       }

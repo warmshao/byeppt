@@ -9,6 +9,7 @@ import type {
   ProjectSummaryEntry,
   TimelineEntryItem,
   UiLanguage,
+  AgentSettingsApi,
 } from '../shared/home-api'
 import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
@@ -209,3 +210,19 @@ const tabsApi: TabsApi = {
 }
 
 contextBridge.exposeInMainWorld('aiOfficeTabs', tabsApi)
+
+const agentSettingsApi: AgentSettingsApi = {
+  listProviders: () => ipcRenderer.invoke('agent:list-providers'),
+  setProviderKey: (provider, key) => ipcRenderer.invoke('agent:set-key', provider, key),
+  clearProviderKey: (provider) => ipcRenderer.invoke('agent:clear-key', provider),
+  testProviderKey: (provider) => ipcRenderer.invoke('agent:test-key', provider),
+  getModel: async () => (await ipcRenderer.invoke('agent:status'))?.model ?? null,
+  listModels: async () =>
+    (await ipcRenderer.invoke('agent:status'))?.availableModels ?? [],
+  setModel: (sel) => ipcRenderer.invoke('agent:set-model', sel),
+  imageGenStatus: () => ipcRenderer.invoke('imagegen:status'),
+  getImageGenSettings: () => ipcRenderer.invoke('imagegen:get-settings'),
+  setImageGenSettings: (s) => ipcRenderer.invoke('imagegen:set-settings', s),
+}
+
+contextBridge.exposeInMainWorld('aiOfficeAgent', agentSettingsApi)

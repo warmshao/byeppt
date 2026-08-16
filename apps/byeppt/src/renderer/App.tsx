@@ -62,6 +62,9 @@ import { showToast } from './components/toast-bus'
 import { t, useI18n } from './i18n/locale'
 import { ChartDataDialog } from './components/ChartDataDialog'
 import { ChatPanel } from './chat/ChatPanel'
+import { registerDeckAccess } from './agent/deck-access'
+import { requestClarification } from './agent/clarification-store'
+import { installDeckBridge } from './agent/bridge-renderer'
 import type { BrushFormat } from './format-brush'
 import { isTextUndoTarget, shouldRouteUndoToDeck } from './undo-routing'
 import type {
@@ -1046,6 +1049,36 @@ export function App() {
     setSelectedIds([])
     setEditing(null)
     setDirty(true)
+  }, [])
+
+  // ── Agent deck access (slide-tools bridge) ─────────────────────────────
+  // Refs keep the singleton's closures reading the latest deck state across
+  // renders; registration happens once (the bridge itself is install-once).
+  const deckSlidesRef = useRef(slides)
+  deckSlidesRef.current = slides
+  const deckCurrentRef = useRef(current)
+  deckCurrentRef.current = current
+  const deckSelectedRef = useRef(selectedIds)
+  deckSelectedRef.current = selectedIds
+  const deckApplySlideRef = useRef(applySlide)
+  deckApplySlideRef.current = applySlide
+  const deckApplyDeckRef = useRef(applyDeck)
+  deckApplyDeckRef.current = applyDeck
+  useEffect(() => {
+    registerDeckAccess({
+      getSlides: () => deckSlidesRef.current,
+      getCurrent: () => deckCurrentRef.current,
+      getSelectedIds: () => deckSelectedRef.current,
+      applySlide: (i, updated) => deckApplySlideRef.current(i, updated),
+      applyDeck: (all, goTo) => deckApplyDeckRef.current(all, goTo),
+      askClarification: (questions) => requestClarification(questions),
+      // Image discovery runs through the agent's own search skills; this hook
+      // stays a stub until a search-backed implementation lands.
+      searchImages: async () => [],
+      fitWidthPx: FIT_WIDTH,
+    })
+    installDeckBridge()
+    return () => registerDeckAccess(null)
   }, [])
 
   const addSlide = useCallback(() => slideActions.addSlide(ctxRef.current), [])

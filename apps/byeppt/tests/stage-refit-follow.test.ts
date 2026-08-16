@@ -184,6 +184,22 @@ beforeAll(() => {
     },
   })
   ;(window as unknown as { slidesApi: unknown }).slidesApi = makeSlidesApi()
+  // ChatPanel (mounted by App) talks to the agent bridge; stub both agent surfaces
+  ;(window as unknown as { agentApi: unknown }).agentApi = {
+    status: () =>
+      Promise.resolve({ sdkReady: false, ready: false, streaming: false, availableModels: [] }),
+    prompt: () => Promise.resolve({ ok: false, error: 'no-model' }),
+    abort: () => Promise.resolve({ ok: true }),
+    setModel: () => Promise.resolve({ ok: true }),
+    newSession: () => Promise.resolve({ ok: true }),
+    onEvent: () => () => {},
+    onStatus: () => () => {},
+  }
+  ;(window as unknown as { deckBridge: unknown }).deckBridge = {
+    onInvoke: () => () => {},
+    sendResult: () => {},
+    onAbort: () => () => {},
+  }
 })
 
 afterEach(() => {
