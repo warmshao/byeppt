@@ -1,8 +1,0 @@
-python-pptx
-Pillow
-skia-pathops
-uharfbuzz
-numpy
-requests
-beautifulsoup4
-lxml
