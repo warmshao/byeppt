@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import logoMark from './assets/byeppt-mark.svg'
 import iconPptx from './assets/file-pptx.svg'
 import type {
   AgentSettingsApi,
@@ -1371,7 +1370,57 @@ export function Home() {
     <div className="home">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <img className="logo-mark" src={logoMark} alt="" aria-hidden="true" />
+          {/* brand mark (brand/logo-mark-duo.svg inlined for currentColor):
+              back frame keeps the brand orange, front frame follows the theme ink */}
+          <svg
+            className="logo-mark"
+            viewBox="0 84 1024 852"
+            aria-hidden="true"
+          >
+            <mask id="byeppt-logo-cut">
+              <rect x="0" y="84" width="1024" height="852" fill="#FFFFFF" />
+              <g transform="rotate(8 580 570)">
+                <rect
+                  x="330"
+                  y="412"
+                  width="500"
+                  height="315"
+                  rx="44"
+                  fill="none"
+                  stroke="#000000"
+                  strokeWidth="92"
+                />
+              </g>
+            </mask>
+            <g transform="translate(512 512) scale(1.42) translate(-512 -512)">
+              <g mask="url(#byeppt-logo-cut)">
+                <g transform="rotate(-10 448 460)">
+                  <rect
+                    x="198"
+                    y="302"
+                    width="500"
+                    height="315"
+                    rx="44"
+                    fill="none"
+                    stroke="#F2501F"
+                    strokeWidth="76"
+                  />
+                </g>
+              </g>
+              <g transform="rotate(8 580 570)">
+                <rect
+                  x="330"
+                  y="412"
+                  width="500"
+                  height="315"
+                  rx="44"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="76"
+                />
+              </g>
+            </g>
+          </svg>
           <span className="logo-word">ByePPT</span>
         </div>
 
