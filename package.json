@@ -16,12 +16,13 @@
   "scripts": {
     "postinstall": "install-electron",
     "lint": "eslint .",
-    "test": "npm run test -w @byeppt/i18n && npm run test -w @byeppt/electron-utils && npm run test -w @byeppt/font-metrics && npm run test -w @byeppt/docx-engine && npm run test -w @byeppt/file-parse && npm run test -w @byeppt/pptx-engine && npm run test -w @byeppt/pptx-render && npm run test -w @byeppt/project-store && npm run test -w @byeppt/app",
-    "typecheck": "npm run typecheck -w @byeppt/i18n && npm run typecheck -w @byeppt/electron-utils && npm run typecheck -w @byeppt/font-metrics && npm run typecheck -w @byeppt/docx-engine && npm run typecheck -w @byeppt/file-parse && npm run typecheck -w @byeppt/pptx-engine && npm run typecheck -w @byeppt/pptx-render && npm run typecheck -w @byeppt/project-store && npm run typecheck -w @byeppt/ui && npm run typecheck -w @byeppt/app",
-    "dev": "npm run dev -w @byeppt/app",
+    "test": "npm run test -w @byeppt/i18n && npm run test -w @byeppt/electron-utils && npm run test -w @byeppt/font-metrics && npm run test -w @byeppt/docx-engine && npm run test -w @byeppt/file-parse && npm run test -w @byeppt/pptx-engine && npm run test -w @byeppt/pptx-render && npm run test -w @byeppt/project-store && npm run test -w @byeppt/app && npm run test -w @byeppt/shell",
+    "typecheck": "npm run typecheck -w @byeppt/i18n && npm run typecheck -w @byeppt/electron-utils && npm run typecheck -w @byeppt/font-metrics && npm run typecheck -w @byeppt/docx-engine && npm run typecheck -w @byeppt/file-parse && npm run typecheck -w @byeppt/pptx-engine && npm run typecheck -w @byeppt/pptx-render && npm run typecheck -w @byeppt/project-store && npm run typecheck -w @byeppt/ui && npm run typecheck -w @byeppt/app && npm run typecheck -w @byeppt/shell",
+    "dev": "concurrently -k -n slides,shell -c yellow,magenta \"npm run dev:renderer -w @byeppt/app\" \"cross-env SLIDES_RENDERER_URL=http://localhost:5175 npm run dev -w @byeppt/shell\"",
+    "dev:standalone": "npm run dev -w @byeppt/app",
     "build": "npm run build -w @byeppt/app",
     "notices": "node tools/gen-third-party-notices.mjs",
-    "dist:win": "npm run notices && npm run build && npm run dist:win -w @byeppt/app"
+    "dist:win": "npm run notices && npm run build -w @byeppt/app && npm run dist:win -w @byeppt/shell"
   },
   "overrides": {
     "nanoid@3": "^3.3.17",

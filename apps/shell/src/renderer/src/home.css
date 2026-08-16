@@ -1,0 +1,1762 @@
+/* Shared chrome/AI-panel tokens come from @byeppt/ui/tokens.css (imported
+ * before this file in main.tsx); only shell-specific tokens live here. */
+:root {
+  /* Genspark DS v4.1: guide/onboarding accent is the brand blue */
+  --accent: #0f7fff;
+  --accent-hover: #0e72e5;
+  --modal-width-sm: 480px;
+  --avatar-bg: #e8ebef;
+  --badge-bg: #eaf0fd;
+  --checkbox-bg: #ececec;
+  --timeline-user-bg: #eef1f5;
+  --timeline-user-text: #5a6170;
+  /* lift for the active segment in gray-track tab pills */
+  --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
+
+  /* byeppt-logo.svg is accent-colored; no theme inversion */
+  --logo-invert: 0;
+}
+
+/* ── Dark mode overrides ─────────────────────────────────── */
+
+/* Explicit dark: [data-theme="dark"] on <html> */
+[data-theme='dark'] {
+  --accent: #3f99ff;
+  --accent-hover: #5ba5ff;
+  --avatar-bg: #333;
+  --badge-bg: #2a3a4a;
+  --checkbox-bg: #333;
+  --timeline-user-bg: #2a2a3a;
+  --timeline-user-text: #b0b0c0;
+  --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
+  --logo-invert: 0;
+}
+
+/* System dark: no data-theme or data-theme="system" — follow OS preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --accent: #3f99ff;
+    --accent-hover: #5ba5ff;
+    --avatar-bg: #333;
+    --badge-bg: #2a3a4a;
+    --checkbox-bg: #333;
+    --timeline-user-bg: #2a2a3a;
+    --timeline-user-text: #b0b0c0;
+    --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
+    --logo-invert: 0;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* UI CJK fonts per language (documentElement.lang is set at bootstrap and on switch);
+ * the zh expansion must keep the historical stack byte-identical */
+:root {
+  --ui-cjk: 'PingFang SC';
+}
+
+:root:lang(ja) {
+  --ui-cjk: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo';
+}
+
+:root:lang(ko) {
+  --ui-cjk: 'Apple SD Gothic Neo', 'Malgun Gothic';
+}
+
+:root:lang(zh-TW) {
+  --ui-cjk: 'PingFang TC', 'Microsoft JhengHei';
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, var(--ui-cjk), 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* macOS vibrancy (body.vib set at bootstrap): the window background stays
+ * transparent so editor views can punch through to the vibrancy material;
+ * the Home surface paints itself instead of relying on the body. */
+body.vib {
+  background: transparent;
+}
+
+body.vib .home {
+  background: var(--surface);
+}
+
+/* ---- two-pane frame (below the 40px tab bar) ---- */
+
+.home {
+  display: flex;
+  height: calc(100vh - 40px);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 232px;
+  padding: 18px 12px 16px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 8px;
+  margin-bottom: 20px;
+}
+
+.logo-lockup {
+  display: block;
+  height: 28px;
+  width: auto;
+  filter: invert(var(--logo-invert));
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover);
+}
+
+.nav-item.active {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.nav-item svg {
+  flex-shrink: 0;
+  color: var(--text-primary);
+}
+
+.nav-label {
+  flex-shrink: 0;
+}
+
+.nav-count {
+  margin-left: auto;
+  min-width: 22px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- bottom-left account entry (today = Genspark login, later = signup/account system) ---- */
+/* clicking it opens the settings modal (settings.css) directly, which hosts
+   login/logout plus preferences (language / theme / save location / update channel) */
+
+.account-entry {
+  position: relative;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.account-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-btn:hover {
+  background: var(--surface-subtle);
+}
+
+.account-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--avatar-bg);
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.account-avatar.logged-in {
+  background: linear-gradient(135deg, #3d7ff5, #1b58cf);
+  color: #fff;
+}
+
+.account-avatar.waiting {
+  color: var(--accent);
+}
+
+.account-spinner {
+  animation: account-spin 0.9s linear infinite;
+}
+
+@keyframes account-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+  flex: 1;
+}
+
+.account-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.account-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-sub.error {
+  color: #b3261e;
+}
+
+/* rescue panel while waiting for the browser sign-in (auto-open may have failed) */
+.login-hint {
+  position: absolute;
+  left: -8px;
+  bottom: calc(100% + 4px);
+  width: calc(100% + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  z-index: 30;
+}
+
+.login-hint button {
+  border: none;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.login-hint button:hover {
+  background: var(--bg-hover);
+}
+
+.login-hint .login-hint-open {
+  color: var(--accent);
+}
+
+/* ---- main content ---- */
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 36px 40px;
+  overflow-y: auto;
+  background: var(--bg-content);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary);
+}
+
+.home-hero {
+  margin: 28px 0 20px;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.hero-ask {
+  display: block;
+  margin-top: 0;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.quick-cards {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.quick-card {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  max-width: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+
+.quick-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 8%);
+}
+
+.quick-card svg {
+  flex-shrink: 0;
+}
+
+.quick-text {
+  flex: 1;
+  min-width: 0;
+  /* cap at the card's content box: long ext lists ellipsize inside the padding
+     instead of stretching the wrapper and getting clipped at the card border */
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.quick-title-row {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quick-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-sub {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-folder {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+.ai-chip {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 1100px) {
+  .quick-cards {
+    flex-wrap: wrap;
+  }
+
+  .quick-card {
+    flex: 1 1 calc(50% - 5px);
+    max-width: none;
+  }
+}
+
+/* ---- recents ---- */
+
+.recents {
+  margin-top: 24px;
+}
+
+/* sticks to the top of the .content scrollport while the list scrolls under;
+   the gap below is padding (not margin) so the background paints over rows.
+   z-index stays under the sort dropdown (z-index: 5). */
+.recents-toolbar {
+  position: sticky;
+  /* offsets .content's 28px padding-top so the bar hugs the visible top edge */
+  top: -28px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 14px;
+  background: var(--bg-content);
+}
+
+/* "RECENT · N files" on one baseline */
+.recents-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  /* optical: geometrically the label is dead level with the tab text (glyph
+     boxes coincide), but naked bold text beside the gray pill track reads
+     high — compensate down */
+  transform: translateY(2px);
+}
+
+/* matches .section-label so "Recent · N files" reads as one label */
+.file-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* segmented control: gray track, active segment = white card */
+/* segmented filter control: gray track, active segment = white card.
+   One shared 40px rail for the recents page and the Genspark Projects
+   toolbar (where it lines up with the 40px refresh button and search box). */
+.filter-pills,
+.cloud-seg {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 3px;
+  border-radius: 10px;
+  background: var(--checkbox-bg);
+  flex-shrink: 0;
+}
+
+.filter-pill,
+.cloud-seg button {
+  padding: 7px 15px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  /* same size as the toolbar's heading text ("Recent · N files") so the two
+     sit on one optical line — a 13px/14px mix reads as misaligned */
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-pill:hover,
+.cloud-seg button:hover {
+  color: var(--text);
+}
+
+.filter-pill.active,
+.cloud-seg button.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-pill);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* pagination sentinel: the spinner shown when scrolled to the bottom */
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0;
+}
+
+.load-more-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: load-more-spin 0.8s linear infinite;
+}
+
+@keyframes load-more-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* keeps the toolbar the same height as the 40px filter pills it replaces */
+  min-height: 40px;
+}
+
+/* matches .selection-action's text (14px, body text color) */
+.selection-count {
+  font-size: 14px;
+  color: var(--text);
+  margin-right: 4px;
+}
+
+.selection-action {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.selection-action:hover {
+  background: var(--surface-subtle);
+}
+
+.selection-action.danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.selection-action.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* ---- file table ---- */
+
+/* no overflow clipping: row menus must be able to escape the card */
+.recent-table {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.recent-columns,
+.recent-item {
+  display: grid;
+  grid-template-columns: 18px 24px minmax(0, 1fr) 120px 110px 76px 24px 28px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.recent-columns {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+/* header label starts at the icon column so it lines up with the file badges */
+.recent-columns .col-name {
+  grid-column: 2 / 4;
+}
+
+.col-size {
+  text-align: right;
+}
+
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recent-list li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.recent-item {
+  width: 100%;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.recent-list li:last-child .recent-item {
+  border-radius: 0 0 12px 12px;
+}
+
+.recent-row:hover .recent-item {
+  background: var(--surface-subtle);
+}
+
+/* checked rows keep the same gray as the sidebar's active item */
+.recent-row:has(.row-check:checked) .recent-item {
+  background: var(--bg-hover);
+}
+
+.recent-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.col-check {
+  display: flex;
+  align-items: center;
+}
+
+.col-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.col-check input:checked {
+  border-color: var(--accent);
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.4 2.4 4.6-5' stroke='%23fff' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 10px 10px no-repeat;
+}
+
+/* checkboxes are always visible (mock: every row shows its checkbox) */
+.recent-item .row-check {
+  opacity: 1;
+}
+
+.recent-icon {
+  display: flex;
+  align-items: center;
+}
+
+.recent-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.star-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--icon-muted);
+  cursor: pointer;
+}
+
+.star-btn:hover {
+  background: var(--bg-hover-subtle);
+}
+
+.recent-item:hover .star-btn,
+.star-btn.starred {
+  opacity: 1;
+}
+
+.star-btn:hover {
+  color: #f5a623;
+}
+
+.rename-input {
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  background: var(--surface);
+}
+
+.recent-path {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.recent-size {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.more-btn:hover,
+.more-btn[aria-expanded='true'] {
+  background: var(--bg-hover-strong);
+  color: var(--text);
+}
+
+.row-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
+  animation: menu-in 0.1s ease;
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.row-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.row-menu button:hover {
+  background: var(--surface-subtle);
+}
+
+.row-menu button.danger {
+  color: var(--danger);
+}
+
+.row-menu button.danger:hover {
+  background: var(--danger-bg);
+}
+
+.row-menu-divider {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--border-subtle);
+}
+
+/* ---- buttons + modal ---- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-6);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* design-system interaction states; hover fills live on each variant below */
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(35 36 37 / 20%);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--color-border-default);
+  color: var(--text);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.btn-danger {
+  background: var(--color-error);
+  border: none;
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-error-hover);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(4px);
+}
+
+/* ConfirmDialog per the design system: 8px container, 6px buttons */
+.modal {
+  min-width: min(var(--modal-width-sm), 90vw);
+  max-width: 500px;
+  padding: 24px;
+  background: var(--surface);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-modal-strong);
+  animation: menu-in 0.12s ease;
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.modal p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.modal-file-list {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  list-style: none;
+  background: var(--surface-subtle);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.modal-file-list li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.8;
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* ── Project sidebar (P1) ─────────────────────────────── */
+
+.sidebar-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: var(--border-subtle);
+}
+
+.proj-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.proj-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 6px;
+}
+
+.proj-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.proj-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    color 0.1s;
+}
+
+.proj-add-btn:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.proj-new-row {
+  padding: 0 8px 4px;
+}
+
+.proj-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  background: var(--surface);
+}
+
+.proj-rename-input.inline {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.proj-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.proj-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  margin: 0 2px 1px;
+}
+
+.proj-item.active {
+  background: var(--bg-hover);
+}
+
+.proj-item-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+  user-select: none;
+}
+
+.proj-item-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.proj-item:hover .proj-item-main {
+  background: var(--bg-hover);
+}
+
+.proj-item.active .proj-item-main {
+  background: none;
+}
+
+.proj-item-icon {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+.proj-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj-item.active .proj-item-name {
+  font-weight: 600;
+}
+
+.proj-item-meta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.proj-item-count {
+  min-width: 22px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the "..." button floats over the count slot so hidden rows stay aligned */
+.proj-menu-wrap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.proj-item:hover .proj-menu-wrap,
+.proj-menu-wrap:has([aria-expanded='true']) {
+  opacity: 1;
+}
+
+.proj-item:hover:has(.proj-menu-wrap) .proj-item-meta,
+.proj-item:has(.proj-more-btn[aria-expanded='true']) .proj-item-meta {
+  opacity: 0;
+}
+
+.proj-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    color 0.1s;
+}
+
+.proj-more-btn:hover,
+.proj-more-btn[aria-expanded='true'] {
+  background: var(--bg-hover-accent);
+  color: var(--text);
+}
+
+/* fixed-position popup anchored via inline top/right (set at open time) so it
+   escapes the scrollable project list without the list losing overflow-y */
+.proj-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: 140px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 13%);
+  animation: menu-in 0.1s ease;
+}
+
+.proj-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.proj-menu button:hover {
+  background: var(--surface-subtle);
+}
+
+.proj-menu button.danger {
+  color: var(--danger);
+}
+
+.proj-menu button.danger:hover {
+  background: var(--danger-bg);
+}
+
+/* "move to project" submenu on a file row */
+.submenu-trigger {
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+}
+
+.move-menu-wrap {
+  position: relative;
+}
+
+/* opens to the right of the host menu; .submenu-left flips it to the left
+   when the window edge leaves no room (WPS-style edge flip) */
+.submenu {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 4px);
+  z-index: 40;
+  min-width: 140px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 13%);
+  animation: menu-in 0.1s ease;
+}
+
+.submenu.submenu-left {
+  left: auto;
+  right: calc(100% + 4px);
+}
+
+.submenu button,
+.selection-move-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.submenu button:hover,
+.selection-move-menu button:hover {
+  background: var(--surface-subtle);
+}
+
+/* bulk move-to-project dropdown in the selection bar (anchored below the button) */
+.selection-move-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.selection-move-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 140px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 13%);
+  animation: menu-in 0.1s ease;
+}
+
+/* empty-project onboarding copy — centered in the space below the toolbar */
+.content:has(.proj-empty) {
+  display: flex;
+  flex-direction: column;
+}
+
+.recents:has(.proj-empty) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.proj-empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  row-gap: 14px;
+  text-align: center;
+  margin: 0;
+  padding-bottom: 60px;
+  color: var(--text-tertiary);
+  line-height: 1.7 !important;
+}
+
+.empty-hint {
+  font-size: inherit;
+  color: var(--text-secondary);
+}
+
+/* ── Project activity timeline (P1) ───────────────────── */
+
+.timeline-section {
+  margin-top: 28px;
+}
+
+.timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.timeline-head:hover .section-label {
+  color: var(--text);
+}
+
+.timeline-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  transform: rotate(-90deg);
+}
+
+.timeline-chevron.open {
+  transform: rotate(0deg);
+}
+
+.timeline-count {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  padding-left: 2px;
+}
+
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.timeline-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.timeline-list .timeline-item + .timeline-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.timeline-item:hover {
+  background: var(--surface-subtle);
+}
+
+.timeline-role {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.timeline-role.user {
+  background: var(--timeline-user-bg);
+  color: var(--timeline-user-text);
+}
+
+.timeline-role.assistant {
+  background: var(--badge-bg);
+  color: var(--accent);
+}
+
+.timeline-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timeline-filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-preview {
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-ts {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+
+/* ── Cloud (Genspark web) projects ── */
+
+/* fixed header: the content column never scrolls; only .cloud-scroll does */
+/* whole page scrolls (same as the recents page) so the wheel works anywhere;
+   no bottom padding: the list runs flush to the window edge */
+.content:has(.cloud-projects) {
+  padding: 40px 36px 0;
+}
+
+.cloud-projects .proj-empty {
+  flex: 1;
+}
+
+/* pinned while the page scrolls (wheel still works anywhere); the ::before
+   covers the seam left by the content's 40px top padding */
+.cloud-hero {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-content);
+  padding-bottom: 12px;
+}
+
+.cloud-hero::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  left: -36px;
+  right: -36px;
+  height: 40px;
+  background: var(--bg-content);
+}
+
+.cloud-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cloud-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.cloud-subtitle {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.cloud-sort-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 150px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+  padding: 4px;
+  z-index: 5;
+}
+
+.cloud-sort-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 11px;
+  font-size: 13px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.cloud-sort-check {
+  flex-shrink: 0;
+}
+
+.cloud-sort-menu button:hover {
+  background: var(--surface-subtle);
+}
+
+.cloud-sort-menu button.active {
+  font-weight: 600;
+}
+
+.cloud-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.cloud-search {
+  /* sits at the toolbar's right edge, flush with the table below */
+  flex: 1;
+  max-width: 520px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.cloud-search:focus-within {
+  border-color: var(--accent);
+}
+
+.cloud-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* placeholder color follows the suite convention (AI input boxes):
+   tertiary text, not the browser's UA default */
+.cloud-search input::placeholder,
+.proj-rename-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* .cloud-seg styles live with .filter-pills (shared segmented control). */
+
+/* the toolbar → table gap lives in the sticky hero's padding-bottom so the
+   pinned header paints over rows scrolling underneath */
+.cloud-scroll {
+  margin-top: 0;
+}
+
+/* Genspark Projects list styled like the recent-files table: bordered
+   rounded container, column header, grid rows with hairline dividers */
+.cloud-table {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.cloud-columns,
+.cloud-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 110px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.cloud-columns {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+/* header label starts at the icon column so it lines up with the file badges */
+.cloud-columns .col-name {
+  grid-column: 1 / 3;
+}
+
+/* WPS-style sortable column header: label + direction arrow, click opens
+   the sort popover (menu styles shared with .cloud-sort-menu) */
+.cloud-col-sort {
+  position: relative;
+  justify-self: start;
+}
+
+.cloud-col-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cloud-col-sort-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.cloud-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cloud-list li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.cloud-row {
+  width: 100%;
+  /* matches the recent-file rows: 14px paddings + a 26px control column */
+  min-height: 54px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+}
+
+.cloud-list li:last-child .cloud-row {
+  border-radius: 0 0 12px 12px;
+}
+
+.cloud-row:hover {
+  background: var(--surface-subtle);
+}
+
+.cloud-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* title + trailing external icon; the icon hugs the text and survives truncation */
+.cloud-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.cloud-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-row-time {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* always visible so rows read as external links; darkens on hover */
+.cloud-row-external {
+  flex-shrink: 0;
+  color: #c9ced4;
+}
+
+.cloud-row:hover .cloud-row-external,
+.cloud-row:focus-visible .cloud-row-external {
+  color: var(--text-secondary);
+}
+
+/* right-aligned to match the sidebar count column (22px, centered digits) */
+.nav-external {
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 4px;
+  color: var(--text-muted);
+}
+
+.cloud-refresh-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* sits in the toolbar next to the 40px filter tabs / search box */
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.cloud-refresh-btn:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.cloud-refresh-btn.syncing svg {
+  animation: cloud-refresh-spin 0.9s linear infinite;
+  color: var(--text-muted);
+}
+
+@keyframes cloud-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Motion accessibility: suppress all animation for users who opt out */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
