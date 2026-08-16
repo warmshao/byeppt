@@ -1,0 +1,27 @@
+{
+  "name": "@byeppt/file-parse",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "shared attachment parsing: pdf/docx/pptx/xlsx and plain-text formats to text; images flagged for multimodal input",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@byeppt/docx-engine": "*",
+    "fast-xml-parser": "^5.3.4",
+    "jszip": "^3.10.1",
+    "pdfjs-dist": "^6.2.108"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

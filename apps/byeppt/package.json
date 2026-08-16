@@ -1,0 +1,93 @@
+{
+  "name": "@byeppt/app",
+  "productName": "byeppt",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "AI-native presentation studio: byte-fidelity pptx editing + agent-driven deck generation",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:renderer": "vite --config vite.renderer.config.ts",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:dir": "electron-vite build && electron-builder --dir"
+  },
+  "devDependencies": {
+    "@byeppt/file-parse": "*",
+    "@byeppt/i18n": "*",
+    "@byeppt/pptx-engine": "*",
+    "@byeppt/pptx-render": "*",
+    "@byeppt/project-store": "*",
+    "@byeppt/ui": "*",
+    "@types/opentype.js": "^1.3.8",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.4",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^28.0.0",
+    "konva": "^9.3.20",
+    "opentype.js": "^2.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-konva": "^19.0.10",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.1.0"
+  },
+  "author": "byeppt",
+  "build": {
+    "appId": "com.byeppt.app",
+    "productName": "byeppt",
+    "electronVersion": "43.3.0",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "pptx",
+        "name": "PowerPoint Presentation",
+        "role": "Editor"
+      }
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@byeppt/electron-utils": "*",
+    "acorn": "^8.18.0",
+    "harfbuzzjs": "^1.4.0",
+    "pngjs": "^7.0.0",
+    "utif2": "^4.1.0"
+  }
+}

@@ -1,0 +1,5 @@
+export { parseFileToText, type ParsedFile, type ParsedFileKind } from './parse'
+export { docxToText } from './docx'
+export { pptxToText } from './pptx'
+export { xlsxToText } from './xlsx'
+export { pdfToText } from './pdf'

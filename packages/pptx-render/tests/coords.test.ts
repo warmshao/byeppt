@@ -1,0 +1,65 @@
+import { describe, it, expect } from 'vitest'
+import {
+  emuToPx,
+  ptToPx,
+  rotToDeg,
+  makeViewport,
+  rectToPx,
+  placeTransform,
+  EMU_PER_PX_96,
+} from '../src/coords'
+import type { Transform } from '@byeppt/pptx-engine'
+
+describe('2.1 coordinate system', () => {
+  it('emuToPx: 1px = 9525 EMU at scale 1', () => {
+    expect(emuToPx(9525, 1)).toBeCloseTo(1, 6)
+    expect(emuToPx(EMU_PER_PX_96 * 100, 1)).toBeCloseTo(100, 6)
+  })
+
+  it('ptToPx: 18pt = 24px at 96dpi', () => {
+    expect(ptToPx(18, 1)).toBeCloseTo(24, 6)
+    expect(ptToPx(72, 1)).toBeCloseTo(96, 6)
+  })
+
+  it('rotToDeg: 60000 units = 1 degree', () => {
+    expect(rotToDeg(60000)).toBe(1)
+    expect(rotToDeg(2700000)).toBe(45)
+  })
+
+  it('makeViewport: 16:9 slide maps to correct aspect', () => {
+    // Standard 16:9: 12192000 x 6858000 EMU
+    const vp = makeViewport({ cx: 12192000, cy: 6858000 }, 1280)
+    expect(vp.widthPx).toBe(1280)
+    expect(vp.heightPx).toBeCloseTo(720, 0) // 16:9
+  })
+
+  it('rectToPx: scales geometry by viewport scale', () => {
+    const size = { cx: 9525 * 1000, cy: 9525 * 562 } // natural 1000x562 px
+    const vp = makeViewport(size, 500) // scaled to half
+    const px = rectToPx({ x: 9525 * 100, y: 9525 * 50, cx: 9525 * 200, cy: 9525 * 100 }, vp)
+    expect(px.x).toBeCloseTo(50, 4)
+    expect(px.y).toBeCloseTo(25, 4)
+    expect(px.w).toBeCloseTo(100, 4)
+    expect(px.h).toBeCloseTo(50, 4)
+  })
+
+  it('placeTransform: computes center + rotation + parent offset', () => {
+    const size = { cx: 9525 * 1000, cy: 9525 * 1000 }
+    const vp = makeViewport(size, 1000) // scale 1
+    const t: Transform = {
+      offset: { x: 9525 * 100, y: 9525 * 100, cx: 9525 * 200, cy: 9525 * 80 },
+      rot: 2700000, // 45deg
+      flipH: true,
+      flipV: false,
+    }
+    const box = placeTransform(t, vp, { x: 10, y: 20 })
+    expect(box.x).toBeCloseTo(110, 4)
+    expect(box.y).toBeCloseTo(120, 4)
+    expect(box.w).toBeCloseTo(200, 4)
+    expect(box.h).toBeCloseTo(80, 4)
+    expect(box.rotationDeg).toBe(45)
+    expect(box.flipH).toBe(true)
+    expect(box.centerX).toBeCloseTo(210, 4)
+    expect(box.centerY).toBeCloseTo(160, 4)
+  })
+})

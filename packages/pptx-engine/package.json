@@ -1,0 +1,28 @@
+{
+  "name": "@byeppt/pptx-engine",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "pptx parsing (Slide element tree with byte anchors + inheritance resolution), OOXML fragment generation, element-patch save",
+  "exports": {
+    ".": "./src/index.ts",
+    "./table-grid": "./src/table-grid.ts",
+    "./background-promote": "./src/background-promote.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.3.4",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "pptxgenjs": "^4.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

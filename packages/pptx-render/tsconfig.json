@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // Pin resolution to this repo's workspace sources (avoids stale types when node_modules links point elsewhere)
+    "baseUrl": ".",
+    "paths": {
+      "@byeppt/pptx-engine": ["../pptx-engine/src/index.ts"],
+      "@byeppt/pptx-engine/table-grid": ["../pptx-engine/src/table-grid.ts"],
+      "@byeppt/pptx-engine/background-promote": ["../pptx-engine/src/background-promote.ts"]
+    }
+  },
+  "include": ["src", "tests"]
+}
