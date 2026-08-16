@@ -8,7 +8,7 @@
 import type { TSchema } from 'typebox'
 import { SLIDE_TOOL_DEFS } from '../../shared/slide-tools'
 import { invokeOnActiveSlidesWindow } from './deck-bridge'
-import { generateImage } from '../imagegen'
+import { editImage, generateImage } from '../imagegen'
 
 type VsurfSdk = typeof import('@warmshao/vsurf')
 type ToolDefinition = import('@warmshao/vsurf').ToolDefinition
@@ -63,7 +63,48 @@ export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefiniti
     }),
   )
   tools.push(buildGenerateImageTool(sdk, Type))
+  tools.push(buildEditImageTool(sdk, Type))
   return tools
+}
+
+interface PlaceParams {
+  slideIndex?: number
+  xPx?: number
+  yPx?: number
+  wPx?: number
+  hPx?: number
+}
+
+/** Optionally place a generated image file onto a slide via insert_image_bytes. */
+async function placeOnSlide(
+  path: string,
+  p: PlaceParams,
+  signal?: AbortSignal,
+): Promise<{ placed: string; mutated: boolean }> {
+  if (p.slideIndex === undefined) return { placed: '', mutated: false }
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const buf = await readFile(path)
+    const r = await invokeOnActiveSlidesWindow(
+      'insert_image_bytes',
+      {
+        slideIndex: p.slideIndex,
+        base64: buf.toString('base64'),
+        ext: 'png',
+        ...(p.xPx !== undefined ? { xPx: p.xPx } : {}),
+        ...(p.yPx !== undefined ? { yPx: p.yPx } : {}),
+        ...(p.wPx !== undefined ? { wPx: p.wPx } : {}),
+        ...(p.hPx !== undefined ? { hPx: p.hPx } : {}),
+      },
+      signal,
+    )
+    return {
+      placed: r.isError ? `\nPlacement failed: ${r.output}` : `\nPlaced on slide ${p.slideIndex + 1}.`,
+      mutated: r.mutated === true,
+    }
+  } catch (err) {
+    return { placed: `\nPlacement failed: ${err instanceof Error ? err.message : String(err)}`, mutated: false }
+  }
 }
 
 /**
@@ -79,15 +120,16 @@ function buildGenerateImageTool(
     name: 'generate_image',
     label: 'Generate Image',
     description:
-      'Generate an image with the configured AI image backend (Gemini "banana" or OpenAI gpt-image). ' +
+      'Generate an image from a text prompt with the configured AI image backend (Gemini "banana" or OpenAI gpt-image). ' +
       'Returns the saved local PNG path. When slideIndex is provided the image is also placed on that ' +
       'slide (0-based) as an editable picture element at the given box (defaults: centered, ~60% width). ' +
-      'Use for hero visuals, illustrations, icons-with-style; prefer real photos via web search + insert_web_image.',
+      'Use for hero visuals, illustrations, icons-with-style; prefer real photos via web search + insert_web_image. ' +
+      'To edit / transform an existing image (including a previously generated one), use edit_image instead.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Image prompt (English works best); be specific about style, palette, composition' }),
       slideIndex: Type.Optional(Type.Number({ description: '0-based slide to place the image on; omit to only save the file' })),
       size: Type.Optional(Type.String({ description: "gemini: aspect like '16:9'; openai: '1536x1024' etc." })),
-      quality: Type.Optional(Type.String({ description: "openai: 'low'|'medium'|'high'" })),
+      quality: Type.Optional(Type.String({ description: "openai: 'low'|'medium'|'high'|'auto'" })),
       xPx: Type.Optional(Type.Number()),
       yPx: Type.Optional(Type.Number()),
       wPx: Type.Optional(Type.Number()),
@@ -119,36 +161,92 @@ function buildGenerateImageTool(
           details: { summary: undefined, isError: true, mutated: false },
         }
       }
-      let placed = ''
-      let mutated = false
-      if (p.slideIndex !== undefined) {
-        try {
-          const { readFile } = await import('node:fs/promises')
-          const buf = await readFile(result.path)
-          const r = await invokeOnActiveSlidesWindow(
-            'insert_image_bytes',
-            {
-              slideIndex: p.slideIndex,
-              base64: buf.toString('base64'),
-              ext: 'png',
-              ...(p.xPx !== undefined ? { xPx: p.xPx } : {}),
-              ...(p.yPx !== undefined ? { yPx: p.yPx } : {}),
-              ...(p.wPx !== undefined ? { wPx: p.wPx } : {}),
-              ...(p.hPx !== undefined ? { hPx: p.hPx } : {}),
-            },
-            signal,
-          )
-          mutated = r.mutated === true
-          placed = r.isError ? `\nPlacement failed: ${r.output}` : `\nPlaced on slide ${p.slideIndex + 1}.`
-        } catch (err) {
-          placed = `\nPlacement failed: ${err instanceof Error ? err.message : String(err)}`
-        }
-      }
+      const { placed, mutated } = await placeOnSlide(result.path, p, signal)
       return {
         content: [
           {
             type: 'text' as const,
             text: `Image generated (${result.provider}/${result.model}): ${result.path}${placed}`,
+          },
+        ],
+        details: { summary: undefined, isError: false, mutated },
+      }
+    },
+  })
+}
+
+/**
+ * Image-to-image / editing with the configured AI backend. Feed a source image
+ * as an absolute local path (e.g. one returned by generate_image), a data URL,
+ * or raw base64. OpenAI also supports inpainting masks and up to 16 input
+ * images for composition; Gemini ignores masks (conversational editing only).
+ */
+function buildEditImageTool(
+  sdk: VsurfSdk,
+  Type: typeof import('typebox').Type,
+): ToolDefinition {
+  return sdk.defineTool({
+    name: 'edit_image',
+    label: 'Edit Image',
+    description:
+      'Edit or transform an existing image with the configured AI image backend (Gemini "banana" or OpenAI gpt-image). ' +
+      'Pass `image` as an absolute local path (e.g. a path returned by generate_image), a data URL, or raw base64. ' +
+      'OpenAI supports an optional `mask` for inpainting (transparent areas are the edit region) and extra `images` ' +
+      'for multi-image composition (up to 16 total). Gemini does not support masks. ' +
+      'Returns the saved local PNG path; with slideIndex the result is also placed on that slide (0-based) at the given box.',
+    parameters: Type.Object({
+      prompt: Type.String({ description: 'Edit instruction (what to change / restyle / add, English works best)' }),
+      image: Type.String({ description: 'Source image to edit: absolute path, data URL, or base64' }),
+      images: Type.Optional(Type.Array(Type.String({ description: 'Additional reference images (OpenAI multi-image composition; path/data-url/base64)' }))),
+      mask: Type.Optional(Type.String({ description: 'Inpainting mask (OpenAI only): path/data-url; transparent areas are edited' })),
+      slideIndex: Type.Optional(Type.Number({ description: '0-based slide to place the result on; omit to only save the file' })),
+      size: Type.Optional(Type.String({ description: "gemini: aspect like '16:9'; openai: '1536x1024' etc." })),
+      quality: Type.Optional(Type.String({ description: "openai: 'low'|'medium'|'high'|'auto'" })),
+      xPx: Type.Optional(Type.Number()),
+      yPx: Type.Optional(Type.Number()),
+      wPx: Type.Optional(Type.Number()),
+      hPx: Type.Optional(Type.Number()),
+    }) as unknown as TSchema,
+    execute: async (_id, params, signal) => {
+      const p = (params ?? {}) as {
+        prompt?: string
+        image?: string
+        images?: string[]
+        mask?: string
+        slideIndex?: number
+        size?: string
+        quality?: string
+        xPx?: number
+        yPx?: number
+        wPx?: number
+        hPx?: number
+      }
+      if (!p.prompt?.trim()) {
+        return { content: [{ type: 'text' as const, text: 'Error: prompt is required' }], details: { summary: undefined, isError: true, mutated: false } }
+      }
+      if (!p.image?.trim()) {
+        return { content: [{ type: 'text' as const, text: 'Error: image is required (path, data URL, or base64)' }], details: { summary: undefined, isError: true, mutated: false } }
+      }
+      const result = await editImage({
+        prompt: p.prompt,
+        referenceImages: [p.image, ...(p.images ?? [])],
+        mask: p.mask,
+        size: p.size,
+        quality: p.quality,
+        signal,
+      })
+      if (!result.ok || !result.path) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'image editing failed'}` }],
+          details: { summary: undefined, isError: true, mutated: false },
+        }
+      }
+      const { placed, mutated } = await placeOnSlide(result.path, p, signal)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Image edited (${result.provider}/${result.model}): ${result.path}${placed}`,
           },
         ],
         details: { summary: undefined, isError: false, mutated },

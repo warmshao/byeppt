@@ -1,46 +1,84 @@
 /**
- * OpenAI image generation (gpt-image series) via the Images API.
- * `baseUrl` (settings) overrides the endpoint, then OPENAI_BASE_URL
- * (relays / compatible gateways), then the official endpoint.
+ * OpenAI image generation (gpt-image series) via the Vercel AI SDK
+ * (`@ai-sdk/openai` + `ai`'s `generateImage`). Supports text-to-image
+ * (`generateOpenAIImage`) and image editing / image-to-image
+ * (`editOpenAIImage`) with optional mask inpainting and multi-image
+ * composition. `baseUrl` (settings) overrides the endpoint, then
+ * OPENAI_BASE_URL (relays), then the official endpoint.
+ *
+ * The AI SDK packages are ESM-only; the main process bundle is CJS, so they
+ * are loaded with dynamic `await import()` (same pattern as vsurf/typebox).
  */
+import type { GeneratedFile } from 'ai'
 import type { ImageGenRequest } from './index'
 import { imageGenApiKey } from './keys'
+import { loadImageBytes } from './load-image'
 
 const DEFAULT_BASE = 'https://api.openai.com'
 
+type Quality = 'auto' | 'low' | 'medium' | 'high' | 'standard' | 'hd'
+
+async function sdk() {
+  const [{ createOpenAI }, { generateImage }] = await Promise.all([
+    import('@ai-sdk/openai'),
+    import('ai'),
+  ])
+  return { createOpenAI, generateImage }
+}
+
+/** OpenAI image model bound to the configured API key + base URL. */
+async function buildImageModel(model: string, baseUrl?: string) {
+  const apiKey = await imageGenApiKey('openai')
+  if (!apiKey) throw new Error('no-api-key: configure an OpenAI API key in Settings first')
+  const base = (baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
+  // The AI SDK expects the full API prefix (default "https://api.openai.com/v1").
+  const apiBase = base.endsWith('/v1') ? base : `${base}/v1`
+  const { createOpenAI } = await sdk()
+  return createOpenAI({ apiKey, baseURL: apiBase }).image(model)
+}
+
+function toBytes(file: GeneratedFile): Uint8Array {
+  if (file.uint8Array) return new Uint8Array(file.uint8Array)
+  if (file.base64) return Buffer.from(file.base64, 'base64')
+  throw new Error('openai returned no image data')
+}
+
+/** Text-to-image. */
 export async function generateOpenAIImage(
   req: ImageGenRequest & { model: string; baseUrl?: string },
 ): Promise<Uint8Array> {
-  const apiKey = await imageGenApiKey('openai')
-  if (!apiKey) throw new Error('no-api-key: configure an OpenAI API key in Settings first')
-
-  const base = (req.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
-  const body: Record<string, unknown> = {
-    model: req.model,
+  const model = await buildImageModel(req.model, req.baseUrl)
+  const { generateImage } = await sdk()
+  const { image } = await generateImage({
+    model,
     prompt: req.prompt,
-    n: 1,
-  }
-  if (req.size) body.size = req.size // '1024x1024' | '1536x1024' | '1024x1536' | 'auto'
-  if (req.quality) body.quality = req.quality // 'low' | 'medium' | 'high' | 'auto'
-
-  const resp = await fetch(`${base}/v1/images/generations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
-    signal: req.signal,
+    ...(req.size ? { size: req.size as `${number}x${number}` } : {}),
+    ...(req.quality ? { providerOptions: { openai: { quality: req.quality as Quality } } } : {}),
+    abortSignal: req.signal,
   })
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`openai ${resp.status}: ${text.slice(0, 300)}`)
-  }
-  const json = (await resp.json()) as {
-    data?: { b64_json?: string; url?: string }[]
-  }
-  const first = json.data?.[0]
-  if (first?.b64_json) return Buffer.from(first.b64_json, 'base64')
-  if (first?.url) {
-    const img = await fetch(first.url, { signal: req.signal })
-    if (img.ok) return new Uint8Array(await img.arrayBuffer())
-  }
-  throw new Error('openai returned no image data')
+  return toBytes(image)
+}
+
+/** Image-to-image / editing with optional inpainting mask. */
+export async function editOpenAIImage(
+  req: ImageGenRequest & { model: string; baseUrl?: string },
+): Promise<Uint8Array> {
+  const images = req.referenceImages ?? []
+  if (images.length === 0) throw new Error('edit requires at least one input image')
+  const model = await buildImageModel(req.model, req.baseUrl)
+  const loaded = await Promise.all(images.map(loadImageBytes))
+  const mask = req.mask ? await loadImageBytes(req.mask) : undefined
+  const { generateImage } = await sdk()
+  const { image } = await generateImage({
+    model,
+    prompt: {
+      text: req.prompt,
+      images: loaded,
+      ...(mask ? { mask } : {}),
+    },
+    ...(req.size ? { size: req.size as `${number}x${number}` } : {}),
+    ...(req.quality ? { providerOptions: { openai: { quality: req.quality as Quality } } } : {}),
+    abortSignal: req.signal,
+  })
+  return toBytes(image)
 }

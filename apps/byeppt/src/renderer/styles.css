@@ -7482,6 +7482,7 @@ body.show-curtain::after {
   flex-shrink: 0;
   margin-right: -4px;
   cursor: col-resize;
+  position: relative; /* z-index needs positioning for the overhang to stay grabbable */
   z-index: 5;
 }
 .chat-resize:hover {

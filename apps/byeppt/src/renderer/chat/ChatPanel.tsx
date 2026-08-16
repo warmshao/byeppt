@@ -465,8 +465,9 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   /** id of the assistant row currently streaming */
   const activeAssistantRef = useRef<string | null>(null)
   const activeToolsRef = useRef(new Map<string, string>()) // toolCallId → rowId
-  /** attachments of the in-flight prompt, echoed onto its user row when message_start arrives */
-  const echoRef = useRef<EchoAttachment[]>([])
+  /** skip the SDK's message_start(user) echo for our own prompt — the local row
+   *  shows the original text + chips, the wire prompt carries the attachment paths */
+  const skipUserEchoRef = useRef(false)
   /** stable chat id for an unsaved deck (materials folder until the file hits disk) */
   const tempChatIdRef = useRef(`unsaved-${Date.now()}`)
   /** A run-level history batch is open (begin at agent_start, collapse at agent_end) */
@@ -508,19 +509,33 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
           const i = next.findIndex((r) => r.id === id)
           if (i >= 0) next[i] = fn(next[i]!)
         }
+        // Runs don't guarantee a message_end/tool_execution_end for every stream
+        // (abort, provider error, or a new assistant segment superseding the last):
+        // agent_end force-settles anything still marked streaming so no spinner leaks
+        if (evt.type === 'agent_end') {
+          for (let i = 0; i < next.length; i++) {
+            const r = next[i]!
+            if (!r.streaming) continue
+            next[i] =
+              r.kind === 'tool' && !r.toolResult ? { ...r, streaming: false, isError: true } : { ...r, streaming: false }
+          }
+          activeAssistantRef.current = null
+          activeToolsRef.current.clear()
+          return next
+        }
         switch (evt.type) {
           case 'message_start': {
             const msg = evt.message as { role?: string }
             if (msg?.role === 'user') {
-              const echo = echoRef.current
-              echoRef.current = []
-              next.push({
-                id: nextId(),
-                kind: 'user',
-                text: messageParts(evt.message).text,
-                ...(echo.length ? { attachments: echo } : {}),
-              })
+              if (skipUserEchoRef.current) {
+                skipUserEchoRef.current = false
+              } else {
+                next.push({ id: nextId(), kind: 'user', text: messageParts(evt.message).text })
+              }
             } else if (msg?.role === 'assistant') {
+              // a new assistant segment supersedes a still-open one — settle it first
+              const prevId = activeAssistantRef.current
+              if (prevId) mutate(prevId, (r) => ({ ...r, streaming: false }))
               const id = nextId()
               activeAssistantRef.current = id
               next.push({ id, kind: 'assistant', text: '', streaming: true })
@@ -638,6 +653,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     setDraft('')
     setPending([])
     let promptText = text
+    let echo: EchoAttachment[] = []
     if (files.length > 0) {
       const res = await window.agentApi.saveAttachments({
         filePath,
@@ -645,6 +661,9 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
         files: files.map((f) => ({ name: f.name, mime: f.mime, base64: f.base64 })),
       })
       if (!res.ok) {
+        // keep the user's input + files on failure — nothing was sent
+        setDraft(text)
+        setPending(files)
         setRows((prev) => [
           ...prev,
           { id: nextId(), kind: 'error', text: res.error ?? 'attachment-save-failed' },
@@ -656,7 +675,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
         const list = saved.map((a) => `- ${a.name}: ${a.path}`).join('\n')
         promptText = `${promptText}\n\nThe user attached these files for this turn (saved locally; read them by path as needed):\n${list}`
       }
-      echoRef.current = saved.map((a: AgentAttachment) => {
+      echo = saved.map((a: AgentAttachment) => {
         const orig = files.find((f) => f.name === a.name)
         return {
           name: a.name,
@@ -666,9 +685,16 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
         }
       })
     }
+    // local user row (original text + chips); the SDK's message_start(user) echo
+    // for this prompt is skipped — it carries the wire text with attachment paths
+    skipUserEchoRef.current = true
+    setRows((prev) => [
+      ...prev,
+      { id: nextId(), kind: 'user', text, ...(echo.length ? { attachments: echo } : {}) },
+    ])
     const res = await window.agentApi.prompt(promptText)
     if (!res.ok) {
-      echoRef.current = []
+      skipUserEchoRef.current = false
       setRows((prev) => [
         ...prev,
         res.error === 'no-model'
