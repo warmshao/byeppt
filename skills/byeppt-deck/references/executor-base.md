@@ -325,7 +325,7 @@ Step 7.
 
 **Post-processing & Export**: Follow [`generate-pptx.md`](../workflows/generate-pptx.md)
 Step 7. That workflow owns the serial commands, gates, success criteria, and
-published artifacts; [`svg-pipeline.md`](../scripts/docs/svg-pipeline.md) owns
+published artifacts; [`svg-pipeline.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/svg-pipeline.md) owns
 tool-specific flags and behavior.
 
 `svg_final/` may be opened directly or manually inserted into PowerPoint as an SVG picture. It is not a second PPTX route. Use `-s final` only for converter diagnostics; release exports use the default `svg_output/` source. Manual Convert-to-Shape behavior is unsupported.

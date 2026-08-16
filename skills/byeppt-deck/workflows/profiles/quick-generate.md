@@ -105,7 +105,7 @@ inputs, `-o` names an output directory. A PPTX is converted to Markdown here and
 receives its project analysis during the import step below.
 
 **Source-image orientation trigger**: Before import and initialization, follow
-[`conversion.md`](../../scripts/docs/conversion.md) § Image Orientation Review
+[`conversion.md`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md) § Image Orientation Review
 when correction is requested, converted text asks for rotated viewing, or a
 downloaded asset is visibly sideways. Skip the legacy HTML tool.
 
@@ -392,7 +392,7 @@ python3 skills/ppt-master/scripts/visualization_recall.py recall \
 ```
 
 Read the result unfiltered and apply
-[`visualization-recall.md`](../../scripts/docs/visualization-recall.md)'s
+[`visualization-recall.md`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/visualization-recall.md)'s
 low-confidence semantic fallback before retaining `no-template-match`. Choose at most one primary
 Chart/Table `family/key` for a page, validate it with `visualization_recall.py validate`,
 and keep its short purpose only in active context. The reference remains

@@ -186,7 +186,7 @@ dropped.
 
 PPTX import compatibility, tolerant recovery, strict-mode rejection, and
 diagnostic behavior are indexed in
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 
 ---
 

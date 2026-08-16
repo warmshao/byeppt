@@ -128,10 +128,15 @@ Build §IX one page at a time, in order:
    `templates/tables/tables_index.json` list available families. Always pass
    the correct `dataSource`.
 5. Images: `generate_image` for illustrations and hero visuals (backends are
-   user-configured); web photos via the `websearch` skill to find a URL, then
-   `insert_web_image`. `crop_image` / `set_picture_opacity` for treatment.
-   Read `references/image-layout-patterns.md` before the first image-heavy
-   page.
+   user-configured); web photos via `byeppt_pptx_py` `search_images` (openverse/
+   wikimedia, openly-licensed — preferred) or the `websearch` skill to find a
+   URL, then `insert_web_image`. Follow `references/executor-web-image.md`
+   attribution rules for web-sourced images. `crop_image` /
+   `set_picture_opacity` for treatment. Read
+   `references/image-layout-patterns.md` before the first image-heavy page.
+   When the design spec calls for a specific AI rendering/type, consult
+   `references/image-renderings/` and `references/image-type-templates/`
+   indexes per `references/image-generator.md`.
 6. Set backgrounds with `set_slide_background` when the design calls for it.
 
 ### Stage 4 — Deck QC gate (mandatory)
@@ -189,10 +194,13 @@ For cover/hero/poster-grade pages the native tools can't reach:
 
 1. Author one 1280x720 SVG page (or the deck's canvas), following
    `references/semantic-svg.md`, `references/shared-standards-core.md`, and
-   `references/svg-effects.md`.
+   `references/svg-effects.md`. Icons: use the 12k-icon library via
+   `<use data-icon="lib/name">` placeholders + `icon_sync.py` (see
+   `templates/icons/README.md`).
 2. Convert with the `byeppt-pptx-py` kernel functions: scaffold a temp project
    (`project_manager` / shell form), drop the SVG into its `svg_output/`, run
-   `quality_check` (fix blockers), then `svg_to_pptx`.
+   `quality_check` (fix blockers), then `finalize_svg` (embeds the icons) and
+   `svg_to_pptx`.
 3. Merge the result into the open deck with `import_pptx_slides`, then delete
    any placeholder page it replaces.
 

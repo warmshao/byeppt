@@ -32,7 +32,7 @@ the two optional canonical booleans below so export can write the preserved sour
 package fields without inferring visibility from which shapes happen to be
 present. Authored `standard` / `fidelity` templates normally omit both and use
 the default `true`. See
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 
 **Master text-style contract**: Flat and structured export map the declared
 `title` anchor to every `a:defRPr` in Master `p:titleStyle`. Level 1 in both

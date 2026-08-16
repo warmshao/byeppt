@@ -53,6 +53,19 @@
     "files": [
       "out/**"
     ],
+    "asarUnpack": [
+      "node_modules/@warmshao/vsurf/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../../skills",
+        "to": "skills",
+        "filter": [
+          "**/*",
+          "!*.py"
+        ]
+      }
+    ],
     "fileAssociations": [
       {
         "ext": "pptx",
@@ -84,11 +97,14 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.42",
     "@byeppt/electron-utils": "*",
     "@warmshao/vsurf": "^0.7.4",
     "acorn": "^8.18.0",
+    "ai": "^7.0.66",
     "harfbuzzjs": "^1.4.0",
     "pngjs": "^7.0.0",
-    "utif2": "^4.1.0"
+    "utif2": "^4.1.0",
+    "zod": "^4.4.3"
   }
 }

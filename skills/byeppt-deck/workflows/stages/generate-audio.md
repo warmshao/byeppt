@@ -286,7 +286,7 @@ The edge command writes each MP3 and its internal page SRT from the same `edge-t
 
 MiniMax reads word timing from its synchronous subtitle file. ElevenLabs uses `/with-timestamps` and original-text character alignment. CosyVoice enables HTTP streaming plus `word_timestamp_enabled`, then uses the final audio URL and word timing from that synthesis; unsupported model/voice pairs fail without replacing the prior pair unless `--cosyvoice-audio-only` was explicit. Qwen exposes no timing, so it remains audio-only and this stage never estimates SRT timing.
 
-Provider-timed paths share punctuation-first, `--subtitle-max-chars`-bounded regrouping, exact-text validation, and rollback-safe pair publication. See [`docs/audio-narration.md`](../../../../docs/audio-narration.md) for current model and audio-parameter recommendations.
+Provider-timed paths share punctuation-first, `--subtitle-max-chars`-bounded regrouping, exact-text validation, and rollback-safe pair publication. See [`docs/audio-narration.md`](../byeppt-notes.md) for current model and audio-parameter recommendations.
 
 Before generation starts, `notes_to_audio.py` removes stale `audio/manifest.json` and `audio/total.srt`; an incomplete run therefore cannot claim the previous set's provenance or merged timeline. A successful audio-only provider run also removes same-stem stale SRT files. The new manifest is published atomically only after the complete page roster succeeds.
 

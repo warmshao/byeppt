@@ -15,6 +15,7 @@ import {
   nativeImage,
   session as electronSession,
   shell,
+  webContents,
   WebContentsView,
 } from 'electron'
 import type { WebContents } from 'electron'
@@ -944,8 +945,9 @@ export function registerSlidesIpc(): void {
   ipcMain.handle('app:set-theme', (_e, theme: string) => {
     const t = theme === 'light' || theme === 'dark' ? theme : 'system'
     updateAppSettings({ theme: t })
-    for (const win of BrowserWindow.getAllWindows())
-      if (!win.isDestroyed()) win.webContents.send('app:theme-changed', t)
+    // shell mode hosts editors in WebContentsViews (not BrowserWindows) — hit every web contents
+    for (const wc of webContents.getAllWebContents())
+      if (!wc.isDestroyed()) wc.send('app:theme-changed', t)
   })
 
   // Screen recording: source dispatch for the renderer's navigator.mediaDevices.getDisplayMedia.

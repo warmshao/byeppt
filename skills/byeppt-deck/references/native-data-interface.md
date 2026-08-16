@@ -104,7 +104,7 @@ type, chart data shape, and any imported fallback baseline before export.
 Imported marker freshness, fallback classification, provenance, and legacy
 read compatibility are operational import concerns. Keep generated authoring
 free of those attributes; use the exact behavior and field index in
-[`conversion.md`](../scripts/docs/conversion.md#native-table-and-chart-import-claims).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#native-table-and-chart-import-claims).
 
 ```xml
 <g id="p03-revenue-chart" data-pptx-replace-with="chart">

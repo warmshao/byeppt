@@ -47,7 +47,7 @@ request does not explicitly select Quick.
 | Main pipeline sequencing | This file | Owns Step 1–7 order, gates, role switching, and mandatory commands |
 | Artifact ownership | [`artifact-ownership.md`](../references/artifact-ownership.md) | Owns fact channels, source/derived artifact boundaries, and regeneration rules |
 | Failure recovery | [`failure-recovery.md`](./governance/failure-recovery.md) | Owns stop/continue policy and resume pointers |
-| Confirm UI details | [`confirm_ui.md`](../scripts/docs/confirm_ui.md) | Owns the JSON schema, launcher behavior, staged-result contract, port strategy, and chat fallback details |
+| Confirm UI details | [`confirm_ui.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/confirm_ui.md) | Owns the JSON schema, launcher behavior, staged-result contract, port strategy, and chat fallback details |
 | Confirmed template application | [`apply-template-workspace.md`](./stages/apply-template-workspace.md) | Owns validation and installation after Stage 1 confirms library or explicit workspace roots; skip for confirmed free design |
 
 ## Workflow
@@ -76,10 +76,10 @@ Use `source_to_md.py -t <type>` only when extension detection is ambiguous.
 Default local conversion writes Markdown/profile outputs beside each source file.
 Use `-o` only when a specific output file/directory is required; with multiple
 inputs or directory inputs, `-o` is an output directory. Backend converter details are documented in
-[`scripts/docs/conversion.md`](../scripts/docs/conversion.md).
+[`scripts/docs/conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md).
 
 **Source-image orientation trigger**: Before Step 2, follow
-[`conversion.md`](../scripts/docs/conversion.md) § Image Orientation Review when
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md) § Image Orientation Review when
 the user requests correction, converted text asks for rotated viewing, or a
 downloaded asset is visibly sideways. Do not launch its legacy HTML tool.
 
@@ -209,7 +209,7 @@ root remains `explicit`. Candidate provenance never changes later validation,
 installation, or precedence.
 
 Resolve the confirmation surface under
-[`confirm_ui.md`](../scripts/docs/confirm_ui.md). In the UI branch, run
+[`confirm_ui.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/confirm_ui.md). In the UI branch, run
 `--reset-template-selection`, then write
 `<project_path>/confirm_ui/template_options.json` with schema version `1`,
 `phase: "template"`, the UI language, and all supplied exact roots as absolute
@@ -294,7 +294,7 @@ is confirmed; a bare template/style name does not.
 
 **Channel ownership — read each fact once from its owning channel.** In the main pipeline the **content contract is the content-type files in `sources/`** — primarily `<stem>.md`, but also any user-supplied content the import archived there: `.md` / `.markdown` / `.txt` / `.csv` / `.tsv` / `.json` / `.jsonl` / `.yaml` / `.yml` (a `metrics.json` or `data.csv` may carry core content — judge by what the file holds). Text, tables, chart data values, and SmartArt node wording come from these (`ppt_to_md` transcribes native charts as Markdown tables and SmartArt nodes as hierarchical bullets). **Do NOT read pipeline sidecars in `sources/` as content**: `*.conversion_profile.json` (conversion audit) and `*_files/image_manifest.json` (asset index) are process metadata — open them only to audit a conversion or resolve assets, never as slide content. Converted-source originals archived in `sources/` (`.pdf` / `.pptx` / `.docx` / `.xlsx` / `.html` / `.epub` / `.tex` / `.rst` / `.ipynb` / `.typ`, etc.) are read via their converted `<stem>.md`, not scanned directly in the main pipeline. The `analysis/` chart / table / diagram entries are a **structural digest** for outline decisions (which slides carried charts, tables, or SmartArt; chart types / series names; SmartArt layout and hierarchy) — not a second copy of the content values; do NOT also pull chart values or SmartArt wording from `<stem>.slide_library.json` in the main pipeline. The `<stem>.slide_library.json` full structured data is owned by the direct-PPTX workflows: template-fill uses it as the native fill contract while preserving SmartArt unchanged; beautify uses it for native chart / table data and SmartArt relationships while keeping all wording from the Markdown.
 
-**Confirmation orchestration**: field meaning and recommendation logic belong to the active Strategist modules; [`confirm_ui.md`](../scripts/docs/confirm_ui.md) owns the JSON schema, server lifecycle, staged-result contract, port behavior, and equivalent chat fallback.
+**Confirmation orchestration**: field meaning and recommendation logic belong to the active Strategist modules; [`confirm_ui.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/confirm_ui.md) owns the JSON schema, server lifecycle, staged-result contract, port behavior, and equivalent chat fallback.
 
 ⛔ **BLOCKING**: The two-stage Strategist confirmation is the always-on user
 gate unless explicitly delegated. Stage 1 confirms the communication contract

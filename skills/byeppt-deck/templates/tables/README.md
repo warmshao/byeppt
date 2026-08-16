@@ -16,7 +16,7 @@ Master/Layout systems belong in [`layouts/`](../layouts/).
 `tables` object maps each canonical key to one selection-rule `summary`; keys
 match `<key>.svg`, and `meta.total` matches the canonical SVG roster.
 
-Use [`visualization_recall.py`](../../scripts/visualization_recall.py) for
+Use [`visualization_recall.py`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/visualization_recall.py) for
 bounded Chart/Table or table-only recall. New Default planning writes
 `table/<key>` to `page_visualizations`; Quick keeps the selected reference in
 active context.

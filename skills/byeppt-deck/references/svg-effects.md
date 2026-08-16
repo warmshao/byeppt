@@ -157,7 +157,7 @@ PPTX import is a user-input boundary, not generated authoring. Tolerant mode
 retains recognized color semantics, omits only unsupported paint properties,
 and records the decision in `conversion-report.json`; `--strict` keeps the
 closed parser checks. See
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 ---
 
 ### 6.3 Gradients and Paint Effects
@@ -188,7 +188,7 @@ Gradient strokes stay editable;
 reverse import may keep the first stop only. Stop alpha multiplies element opacity.
 PPTX import normalizes gradients and reports degradation;
 `--strict` keeps the closed parser contract. See
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 Checker/exporter preflight share this validation.
 Gradient-stop colors are contextual paint values. Keep them coherent with the
 deck anchors and page intent; they are not required to duplicate existing
@@ -288,7 +288,7 @@ PPTX import maps one classifiable shape/connector/picture outer shadow or glow
 to this contract. Unsupported effects and outer-shadow variants whose scale,
 skew, alignment, or rotation semantics cannot be retained become import
 diagnostics instead of a silently simplified authoring surface. See
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary)
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary)
 for tolerant, strict, and release-handling behavior.
 The quality checker and exporter preflight enforce the same definition,
 reference, primitive, target, and numeric-value contract. Missing required
@@ -449,7 +449,7 @@ fidelity.
 PPTX import treats unsupported line properties as source diagnostics: tolerant
 mode retains the object and omits only the unsupported outline; `--strict`
 retains the closed rejection behavior. See
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 
 The dash grammar is closed: exact lowercase `none`, or at least two finite
 unitless numbers separated by whitespace or one comma. Generated SVG uses
@@ -681,7 +681,7 @@ flag tokens. A polygon has at least three coordinate pairs and a polyline at
 least two.
 
 **Validation**: Checker and native export consume the same parser in
-[`paths.py`](../scripts/svg_to_pptx/drawingml/paths.py); native-object fallback
+[`paths.py`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/svg_to_pptx/drawingml/paths.py); native-object fallback
 bounds reuse its normalized commands rather than a second path grammar.
 
 **Reference — not a constraint**: use the fewest curve segments and control
@@ -868,7 +868,7 @@ grain and explicit circles/paths only for sparse editable marks.
 
 Unsupported source effects remain visible where possible and retain their
 import diagnostics. Resolve those diagnostics before release export; see
-[`conversion.md`](../scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
+[`conversion.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/conversion.md#import-compatibility-and-recovery-boundary).
 
 ---
 

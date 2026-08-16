@@ -39,7 +39,7 @@ activate the Codex-supported, Quick-only
 Beautify requires a semantic source PPTX and deliberately redesigns layout; the
 two fidelity profiles never compose.
 
-**When this profile is wrong — re-architecture belongs to ordinary Generate**: this profile preserves the source's page count and page order 1:1. It is for "keep this deck, just lay it out better". When the user instead wants the original page breakdown reconsidered — merge / split / reorder pages, re-outline the structure, build a *better deck* from the same content rather than a prettier version of the same pages — do not activate this profile. This includes re-pagination for fit: "keep every word but split a crowded page so it reads better" changes page count. Convert the deck with [`ppt_to_md`](../../scripts/source_to_md/ppt_to_md.py) and use ordinary Quick when Quick was explicit, otherwise the Default main pipeline. The deciding question: is the source's page split information to preserve, or just the previous author's structure to improve? Preserve → activate this profile; improve → ordinary Generate in the selected runtime.
+**When this profile is wrong — re-architecture belongs to ordinary Generate**: this profile preserves the source's page count and page order 1:1. It is for "keep this deck, just lay it out better". When the user instead wants the original page breakdown reconsidered — merge / split / reorder pages, re-outline the structure, build a *better deck* from the same content rather than a prettier version of the same pages — do not activate this profile. This includes re-pagination for fit: "keep every word but split a crowded page so it reads better" changes page count. Convert the deck with [`ppt_to_md`](../byeppt-notes.md) and use ordinary Quick when Quick was explicit, otherwise the Default main pipeline. The deciding question: is the source's page split information to preserve, or just the previous author's structure to improve? Preserve → activate this profile; improve → ordinary Generate in the selected runtime.
 
 ---
 
@@ -238,7 +238,7 @@ requested regeneration; normal progression leaves confirmed earlier stages
 intact. Do **not** hide fields: seed **every** targeted-confirmation field with
 the inherited / source-derived default so the user sees the recommendation and
 keeps the place to change it. Schema →
-[`scripts/docs/confirm_ui.md`](../../scripts/docs/confirm_ui.md).
+[`scripts/docs/confirm_ui.md`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/confirm_ui.md).
 
 Rows are abbreviated; follow Confirm UI's four-locale contract and omit `english` for English sources.
 

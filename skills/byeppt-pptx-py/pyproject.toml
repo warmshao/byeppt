@@ -14,6 +14,7 @@ dependencies = [
   "uharfbuzz",
   "numpy",
   "requests",
+  "google-genai",
   "beautifulsoup4",
   "lxml",
 ]

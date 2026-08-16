@@ -15,8 +15,10 @@ from pathlib import Path
 
 PKG_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = PKG_DIR / 'scripts'
+ICONS_DIR = PKG_DIR / 'templates' / 'icons'
 
-__all__ = ['PKG_DIR', 'SCRIPTS_DIR', 'svg_to_pptx', 'quality_check', 'finalize_svg', 'run']
+__all__ = ['PKG_DIR', 'SCRIPTS_DIR', 'ICONS_DIR', 'svg_to_pptx', 'quality_check', 'finalize_svg',
+           'search_images', 'remove_gemini_watermark', 'run']
 
 
 async def _run_script(script: str, *args: str) -> str:
@@ -52,15 +54,39 @@ async def finalize_svg(project: str) -> str:
     return await _run_script('finalize_svg.py', project)
 
 
+async def search_images(query: str, output: str, filename: str | None = None,
+                        *extra_args: str) -> str:
+    """Search/download openly-licensed web images (openverse/wikimedia/pexels/pixabay).
+
+    Single-query download: search_images('berlin skyline dusk', '/tmp/imgs', 'cover.jpg')
+    Batch/shortlist mode: pass extra_args like '--batch' / '--shortlist' per image_search.py --help.
+    """
+    args = [query, '-o', output]
+    if filename:
+        args += ['--filename', filename]
+    return await _run_script('image_search.py', *args, *extra_args)
+
+
+async def remove_gemini_watermark(input_path: str, output: str | None = None) -> str:
+    """Strip the Gemini SynthID visual watermark from a generated PNG/JPG."""
+    args = [input_path]
+    if output:
+        args += ['-o', output]
+    return await _run_script('gemini_watermark_remover.py', *args)
+
+
 async def run(action: str, **kwargs) -> str:
     """Dispatch entry for the kernel skill callable.
 
-    action: 'svg_to_pptx' | 'quality_check' | 'finalize_svg'
+    action: 'svg_to_pptx' | 'quality_check' | 'finalize_svg' | 'search_images'
+          | 'remove_gemini_watermark'
     """
     actions = {
         'svg_to_pptx': svg_to_pptx,
         'quality_check': quality_check,
         'finalize_svg': finalize_svg,
+        'search_images': search_images,
+        'remove_gemini_watermark': remove_gemini_watermark,
     }
     fn = actions.get(action)
     if fn is None:

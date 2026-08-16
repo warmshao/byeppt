@@ -10,11 +10,12 @@
  * Credentials: vsurf AuthStorage at <userData>/agent/auth.json (the only
  * secret store). The non-secret "last selected model" lives in app-settings.
  */
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, ipcMain, shell, webContents } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
 import type { AgentProviderConfig } from '../app-settings'
+import { syncImageGenEnvFile } from '../imagegen/env'
 import { buildSlideCustomTools } from './slide-tools-main'
 
 /** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
@@ -98,8 +99,11 @@ function modelInfo(m: { provider: string; id: string; name?: string }): AgentMod
 }
 
 function broadcast(channel: string, payload: unknown): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload)
+  // NOT BrowserWindow.getAllWindows(): in shell mode the editor lives in a
+  // WebContentsView, whose webContents owns no BrowserWindow — window-only
+  // delivery silently drops every agent event before it reaches the chat panel
+  for (const wc of webContents.getAllWebContents()) {
+    if (!wc.isDestroyed()) wc.send(channel, payload)
   }
 }
 
@@ -194,6 +198,9 @@ async function ensureSession(): Promise<AgentSession | null> {
       return null
     }
     const skillsDir = resolveSkillsDir()
+    // The kernel's batch image path (image_gen.py) reads <cwd>/.env — mirror
+    // the Settings image backend there before the kernel can spawn.
+    await syncImageGenEnvFile()
     const resourceLoader = new s.DefaultResourceLoader({
       cwd: agentDir(),
       agentDir: agentDir(),
@@ -205,6 +212,10 @@ async function ensureSession(): Promise<AgentSession | null> {
             ],
           }
         : {}),
+      // MCP-integration skills the user can never authenticate inside byeppt —
+      // keep them out of the system prompt (the SDK's own CLI wires this to
+      // its MCP manager; a custom resourceLoader must opt in explicitly).
+      extraBuiltinSkillOverrides: () => ['-notion/SKILL.md', '-linear/SKILL.md'],
       appendSystemPrompt: [BYEPPT_PREAMBLE],
     })
     const { session: created } = await s.createAgentSession({
@@ -221,6 +232,9 @@ async function ensureSession(): Promise<AgentSession | null> {
     created.subscribe((event) => {
       try {
         broadcast('agent:event', event)
+        // streaming flips back to false here — without this push the panel's
+        // send button stays in "stop" mode after a successful run
+        if (event?.type === 'agent_end') void getStatus().then((s) => broadcast('agent:status', s))
       } catch (err) {
         console.warn('[agent] failed to forward event', event?.type, err)
       }
@@ -259,6 +273,9 @@ export function registerAgentIpc(): void {
   ipcMain.handle('agent:prompt', async (_e, text: string) => {
     const s = await ensureSession()
     if (!s) return { ok: false, error: sdkError ?? 'no-model' }
+    // The kernel may spawn lazily on this prompt — keep the batch image
+    // path's .env in sync with Settings (cheap no-op when unchanged).
+    await syncImageGenEnvFile()
     const wasIdle = !s.isStreaming
     // Fire and settle in the background; the event stream carries progress.
     void s.prompt(String(text)).catch(async (err) => {

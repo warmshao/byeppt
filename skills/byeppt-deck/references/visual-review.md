@@ -1,6 +1,6 @@
 # Visual Review Rubric
 
-> Per-page visual self-check rubric for slide SVGs. Read by the subagents spawned during the `visual-review` stage. Companion to the [`visual-review` stage](../workflows/stages/visual-review.md) and the [`visual_review.py`](../scripts/visual_review.py) renderer.
+> Per-page visual self-check rubric for slide SVGs. Read by the subagents spawned during the `visual-review` stage. Companion to the [`visual-review` stage](../workflows/stages/visual-review.md) and the [`visual_review.py`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/visual_review.py) renderer.
 
 ## §0 Prerequisites
 

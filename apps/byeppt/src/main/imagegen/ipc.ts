@@ -19,6 +19,7 @@ import {
   type ImageGenRequest,
 } from './index'
 import { clearImageGenApiKey, imageGenApiKey, setImageGenApiKey } from './keys'
+import { syncImageGenEnvFile } from './env'
 import { readAppSettings, updateAppSettings, type ImageGenProviderConfig } from '../app-settings'
 
 let registered = false
@@ -83,6 +84,7 @@ export function registerImageGenIpc(): void {
     if (!(await imageGenApiKey(provider))) return { ok: false, error: 'no-api-key' }
     const imageGen = { ...readAppSettings().imageGen, provider }
     updateAppSettings({ imageGen })
+    await syncImageGenEnvFile()
     return { ok: true }
   })
 
@@ -108,6 +110,7 @@ export function registerImageGenIpc(): void {
       updateAppSettings({
         imageGen: { ...saved, providers: { ...saved?.providers, [provider]: next } },
       })
+      void syncImageGenEnvFile()
       return { ok: true }
     },
   )
@@ -119,6 +122,7 @@ export function registerImageGenIpc(): void {
     if (!ok) return { ok: false, error: 'sdk-load-failed' }
     // new key → previous test result no longer meaningful
     patchProviderConfig(provider, { verified: false, testFailed: false })
+    await syncImageGenEnvFile()
     return { ok: true }
   })
 
@@ -126,6 +130,7 @@ export function registerImageGenIpc(): void {
     if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
     await clearImageGenApiKey(provider)
     patchProviderConfig(provider, { verified: false, testFailed: false })
+    await syncImageGenEnvFile()
     return { ok: true }
   })
 

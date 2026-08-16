@@ -57,6 +57,19 @@ system mode).
 - Workspace packages listed in the app's `dependencies` must also be added to
   the `externalizeDepsPlugin` `exclude` list, or the packaged app crashes on
   launch.
+- Agent packaging (verified via `electron-builder --dir`): npm deps such as
+  `@warmshao/vsurf` stay externalized and are collected into `app.asar` from
+  the hoisted workspace root automatically. `node_modules/@warmshao/vsurf/**`
+  is in `asarUnpack` because its builtin python skills are pip-installed by
+  the kernel at runtime (pip can't read inside asar). The repo `skills/` tree
+  ships via `extraResources` → `resources/skills` (top-level `*.py` excluded —
+  `skills/check_links.py` is a maintenance tool); `session.ts
+  resolveSkillsDir()` depends on that layout.
+- The Settings → 图片生成 backend is mirrored to `<userData>/agent/.env`
+  (`imagegen/env.ts`) so the kernel's `image_gen.py` batch path shares the
+  interactive tool's backend. Never export those keys via `process.env` —
+  ambient `OPENAI_API_KEY` etc. would register as LLM-provider credentials in
+  the vsurf ModelRegistry.
 - `useI18n()`'s `t` is not referentially stable; never put it in a hook
   dependency array. Store the key and translate at render time.
 - This environment sets `ELECTRON_RUN_AS_NODE=1`; unset it

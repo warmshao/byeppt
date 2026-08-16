@@ -625,7 +625,7 @@ Video renderers consume the resolved conversion trace through
 `video_motion_plan.py`, never a raw sidecar or delay-only inference. The plan
 locks identity, order, effect, direction, and timing; video may refine only its
 declared renderer parameters. Unsupported families fail visibly. See
-[`video-motion-plan.md`](../scripts/docs/video-motion-plan.md).
+[`video-motion-plan.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/video-motion-plan.md).
 
 On the native-export mix branch, direct narrated video sound uses the final
 resolved trace for cue order and offsets, the final PPTX relationships for the
@@ -655,7 +655,7 @@ playback instead and does not consume the trace for sound mixing.
 
 ## 9. Implementation References
 
-See [`svg-pipeline.md`](../scripts/docs/svg-pipeline.md),
-[`pptx-transitions.md`](../scripts/docs/pptx-transitions.md),
-[`pptx-animations.md`](../scripts/docs/pptx-animations.md), and
-[`video-motion-plan.md`](../scripts/docs/video-motion-plan.md).
+See [`svg-pipeline.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/svg-pipeline.md),
+[`pptx-transitions.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/pptx-transitions.md),
+[`pptx-animations.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/pptx-animations.md), and
+[`video-motion-plan.md`](../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/video-motion-plan.md).

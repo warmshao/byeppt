@@ -454,7 +454,7 @@ one shape, trigger, target, resolved effect, duration, offset, timing placement,
 IDs, and shape references. Narration
 preserves these rows. Direct-PPTX routes fingerprint and preserve source object
 animation; they never author it. See
-[`pptx-animations.md`](../../scripts/docs/pptx-animations.md).
+[`pptx-animations.md`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/pptx-animations.md).
 
 ### 5.1 Optional Video Motion Handoff
 
@@ -478,7 +478,7 @@ records PowerPoint's native cue playback and does not use the trace for sound
 mixing. The video plan locks identity, effect, direction, order, bounds, and
 timing; it may refine renderer parameters but cannot replace the source effect.
 See
-[`video-motion-plan.md`](../../scripts/docs/video-motion-plan.md).
+[`video-motion-plan.md`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/docs/video-motion-plan.md).
 
 ---
 

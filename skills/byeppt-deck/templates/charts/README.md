@@ -16,10 +16,10 @@ Master/Layout, page-type, slot, and placeholder contracts belong in
 form `Pick for ... Skip if ...`. The key matches `<key>.svg`; `meta.total`
 matches the canonical SVG roster.
 
-Use [`visualization_recall.py`](../../scripts/visualization_recall.py) for
+Use [`visualization_recall.py`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/visualization_recall.py) for
 bounded Chart/Table or chart-only recall. New Default planning writes
 `chart/<key>` to `page_visualizations`; Quick keeps the selected reference in
-active context. [`chart_recall.py`](../../scripts/chart_recall.py) and bare keys
+active context. [`chart_recall.py`](../../../byeppt-pptx-py/src/byeppt_pptx_py/scripts/chart_recall.py) and bare keys
 remain legacy compatibility only.
 
 ## Authoring contract
