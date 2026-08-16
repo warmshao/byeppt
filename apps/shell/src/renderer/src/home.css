@@ -105,14 +105,14 @@ body.vib .home {
   gap: 9px;
   padding: 0 8px;
   margin-bottom: 20px;
-  /* the mark's front frame is currentColor — it follows the chrome theme */
-  color: var(--text);
 }
 
 .logo-mark {
   display: block;
   width: 26px;
   height: 26px;
+  /* the tile's own rounding (rx=228 @1024) scales down to ~6px */
+  border-radius: 6px;
 }
 
 /* wordmark text follows the chrome theme (dark in light mode, white in dark) */

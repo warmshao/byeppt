@@ -168,14 +168,17 @@ async function syncOpenAICompatible(stores: {
   })
 }
 
-/** Pick the model: last explicit selection (if still usable) → first model with credentials. */
+/** The agent's model is ALWAYS an explicit user choice (启用 in Settings):
+ *  the saved selection, if it still exists and has credentials. No silent
+ *  fallback — an unconfigured agent must surface 'no-model', not quietly run
+ *  on whatever provider happens to have a key. */
 function pickModel(reg: ModelRegistry): ReturnType<ModelRegistry['getAvailable']>[number] | undefined {
   const saved = readAppSettings().agentModel
   if (saved) {
     const m = reg.find(saved.provider, saved.id)
     if (m && reg.hasConfiguredAuth(m)) return m
   }
-  return reg.getAvailable()[0]
+  return undefined
 }
 
 async function ensureSession(): Promise<AgentSession | null> {
@@ -419,6 +422,8 @@ export function registerAgentIpc(): void {
       if (!stores) return { ok: false, error: sdkError ?? 'sdk-load-failed' }
       const prev = providerConfigs()[provider]
       const patch: Partial<AgentProviderConfig> = { model: cfg.model || undefined }
+      // a different model was never connectivity-tested
+      if (prev?.model !== patch.model) patch.verified = false
       // baseUrl only travels for providers whose dialog exposes the field —
       // undefined here means "left alone", not "cleared"
       const touchesUrl = typeof cfg.baseUrl === 'string'
@@ -571,14 +576,30 @@ export function registerAgentIpc(): void {
     if (!model) return { ok: false, error: 'no-model-for-provider' }
     try {
       const ai = await import('vsurf-ai')
-      await ai.completeSimple(
+      // pull provider/model request headers too — OAuth subscription tokens
+      // (sk-ant-oat…, codex account headers) don't authenticate with a bare key
+      const resolved = await stores.modelRegistry.getApiKeyAndHeaders(model)
+      // completeSimple does NOT throw on API errors — they come back as an
+      // assistant message with stopReason 'error' (401, model-missing, …)
+      const res = await ai.completeSimple(
         model,
         { messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }] },
-        { apiKey, maxTokens: 8 },
+        {
+          apiKey,
+          // generous enough for reasoning models (a tiny cap can be rejected
+          // outright when the thinking budget exceeds it)
+          maxTokens: 512,
+          ...(resolved.ok && resolved.headers ? { headers: resolved.headers } : {}),
+        },
       )
+      if (res.stopReason === 'error') {
+        patchProviderConfig(provider, { verified: false })
+        return { ok: false, error: (res.errorMessage ?? 'unknown error').slice(0, 300) }
+      }
       patchProviderConfig(provider, { verified: true })
       return { ok: true }
     } catch (err) {
+      console.warn('[agent] connectivity test failed for', provider, err)
       patchProviderConfig(provider, { verified: false })
       return { ok: false, error: err instanceof Error ? err.message.slice(0, 300) : String(err) }
     }

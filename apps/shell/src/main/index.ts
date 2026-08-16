@@ -183,10 +183,17 @@ function createShellWindow(): void {
     minHeight: 600,
     title: 'ByePPT',
     // dev-mode window/taskbar icon (packaged builds get it from the exe /
-    // electron-builder's build/icon.*); macOS uses the dock icon instead
-    ...(process.platform !== 'darwin' && !app.isPackaged
-      ? { icon: join(__dirname, '../../build/icon.png') }
-      : {}),
+    // electron-builder's build/icon.*); macOS uses the dock icon instead.
+    // Windows gets the .ico so the title bar picks the size-optimised 16/24/32
+    // entries instead of downsampling the 1024px PNG (jagged diagonals).
+    ...(process.platform === 'darwin' || app.isPackaged
+      ? {}
+      : {
+          icon: join(
+            __dirname,
+            process.platform === 'win32' ? '../../build/icon.ico' : '../../build/icon.png',
+          ),
+        }),
     // vibrancy: the slides editor punches translucent regions (e.g. the
     // thumbnail pane) through to the desktop
     ...(process.platform === 'darwin'
@@ -829,6 +836,9 @@ registerProjectPanelIpc()
 const devPidFile = () => join(app.getPath('userData'), 'dev-instance.pid')
 
 app.whenReady().then(async () => {
+  // keep the dev taskbar icon grouping identical to the packaged app
+  // (electron-builder sets this AUMID in the installer; dev needs it explicit)
+  app.setAppUserModelId('com.byeppt.app')
   const lockData = () => (pendingLaunchPath ? { launchPath: pendingLaunchPath } : {})
   let hasLock = app.requestSingleInstanceLock(lockData())
   if (!hasLock && !app.isPackaged) {

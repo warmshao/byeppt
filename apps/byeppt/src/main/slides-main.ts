@@ -3810,10 +3810,17 @@ export function createSlidesWindow(openPath?: string | null): BrowserWindow {
     height: 840,
     title: 'byeppt',
     // dev-mode window/taskbar icon (packaged builds get it from the exe /
-    // electron-builder's build/icon.*); macOS uses the dock icon instead
-    ...(process.platform !== 'darwin' && !app.isPackaged
-      ? { icon: join(__dirname, '../../build/icon.png') }
-      : {}),
+    // electron-builder's build/icon.*); macOS uses the dock icon instead.
+    // Windows gets the .ico so the title bar picks the size-optimised 16/24/32
+    // entries instead of downsampling the 1024px PNG (jagged diagonals).
+    ...(process.platform === 'darwin' || app.isPackaged
+      ? {}
+      : {
+          icon: join(
+            __dirname,
+            process.platform === 'win32' ? '../../build/icon.ico' : '../../build/icon.png',
+          ),
+        }),
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const }
       : {

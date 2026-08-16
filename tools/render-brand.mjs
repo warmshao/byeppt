@@ -19,7 +19,7 @@ import sharp from 'sharp'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const svg = readFileSync(join(root, 'brand/logo.svg'))
-// bold-stroke variant for tiny sizes (thin diagonal strokes alias at <=64px)
+// bold-stroke tile variant for small sizes (thin diagonal strokes alias at <=64px)
 const svgSmall = readFileSync(join(root, 'brand/logo-small.svg'))
 
 const render = (size) =>
@@ -43,7 +43,7 @@ function buildIco(pngs) {
     e.writeUInt16LE(1, 4) // planes
     e.writeUInt16LE(32, 6) // bpp
     e.writeUInt32LE(buf.length, 8)
-    e.writeUInt32LE(offset, 10)
+    e.writeUInt32LE(offset, 12)
     offset += buf.length
     dir.push(e)
   }

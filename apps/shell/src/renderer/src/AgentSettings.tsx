@@ -213,23 +213,25 @@ function ProviderEditDialog({ provider, onClose, onChanged }: ProviderEditDialog
             {(!oauth.ask || oauth.ask.kind === 'text') && (
               <>
                 {oauth.ask?.message && <p className="set-config-hint">{oauth.ask.message}</p>}
-                <input
-                  className="set-input"
-                  value={oauthAnswer}
-                  placeholder={oauth.ask?.placeholder || t('setOauthPastePlaceholder')}
-                  onChange={(e) => setOauthAnswer(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (oauth.ask?.allowEmpty || oauthAnswer.trim()))
-                      answerAsk(oauthAnswer.trim())
-                  }}
-                />
-                <button
-                  className="set-btn"
-                  disabled={!oauth.ask?.allowEmpty && !oauthAnswer.trim()}
-                  onClick={() => answerAsk(oauthAnswer.trim())}
-                >
-                  OK
-                </button>
+                <div className="set-oauth-row">
+                  <input
+                    className="set-input"
+                    value={oauthAnswer}
+                    placeholder={oauth.ask?.placeholder || t('setOauthPastePlaceholder')}
+                    onChange={(e) => setOauthAnswer(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (oauth.ask?.allowEmpty || oauthAnswer.trim()))
+                        answerAsk(oauthAnswer.trim())
+                    }}
+                  />
+                  <button
+                    className="set-btn primary set-oauth-submit"
+                    disabled={!oauth.ask?.allowEmpty && !oauthAnswer.trim()}
+                    onClick={() => answerAsk(oauthAnswer.trim())}
+                  >
+                    OK
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -404,6 +406,12 @@ export function ProvidersPane() {
               <span>{p.name}</span>
               {p.hasKey && <span className="set-key-badge">{t('setKeyConfigured')}</span>}
             </div>
+            {failures[p.id] !== undefined && testing !== p.id && (
+              <div className="set-field-value set-err set-provider-fail">
+                {t('setTestFailTip')}
+                {failures[p.id] ? `: ${failures[p.id]}` : ''}
+              </div>
+            )}
           </div>
           <span className="set-provider-actions">
             {p.active ? (

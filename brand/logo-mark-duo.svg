@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="852" viewBox="0 84 1024 852">
+<svg xmlns="http://www.w3.org/2000/svg" width="1133" height="883" viewBox="-54 69 1133 883">
   <defs>
     <!-- knock the front frame out of the back one (with a small air gap) -->
     <mask id="cut">
-      <rect x="0" y="84" width="1024" height="852" fill="#FFFFFF"/>
+      <rect x="-54" y="69" width="1133" height="883" fill="#FFFFFF"/>
       <g transform="rotate(8 580 570)">
         <rect x="330" y="412" width="500" height="315" rx="44" fill="none" stroke="#000000" stroke-width="92"/>
       </g>

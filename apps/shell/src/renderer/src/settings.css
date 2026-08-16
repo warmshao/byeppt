@@ -319,6 +319,11 @@
   margin-bottom: 8px;
   font-family: inherit;
 }
+/* connectivity failure shown inline under the provider name */
+.set-provider-fail {
+  font-size: 12px;
+  text-align: left;
+}
 /* "in use" pill replacing the enable button on the active provider */
 .set-inuse {
   display: inline-flex;
@@ -428,6 +433,22 @@
   flex: none;
   width: 100%;
   box-sizing: border-box;
+}
+/* paste-input + confirm on one row; confirm is a primary (accent) button so it
+ * reads as the action instead of a washed-out full-width gray bar */
+.set-oauth-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-oauth-row .set-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.set-oauth-submit {
+  height: 32px;
+  padding: 0 16px;
 }
 .set-oauth-options {
   display: flex;
