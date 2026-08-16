@@ -17,6 +17,7 @@ import { readAppSettings, updateAppSettings } from '../app-settings'
 import type { AgentProviderConfig } from '../app-settings'
 import { syncImageGenEnvFile } from '../imagegen/env'
 import { buildSlideCustomTools } from './slide-tools-main'
+import { prepareKernelEnvironment } from './kernel-env'
 
 /** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
 const BYEPPT_PREAMBLE = [
@@ -25,6 +26,7 @@ const BYEPPT_PREAMBLE = [
   'Slide tools (get_deck_context, read_slide, execute_slide_script, add_*, set_element_*, generate_image, ask_clarification, import_pptx_slides, …) operate on the currently open deck — results appear on canvas immediately and are undoable by the user.',
   'For any deck creation/beautify/heavy-edit task, follow the byeppt-deck skill (its methodology, stage gates, and design references are authoritative).',
   'Never fabricate numbers as facts (the tools enforce dataSource); reply in the user’s language.',
+  'The full vsurf builtin skill set (browser automation, websearch, edit, …) is installed alongside the byeppt skills — always consult <available_skills> before claiming a capability is missing.',
 ].join('\n')
 
 /** Locate the bundled skills dir (repo ./skills in dev, resources/skills when packaged). */
@@ -105,6 +107,87 @@ function broadcast(channel: string, payload: unknown): void {
   for (const wc of webContents.getAllWebContents()) {
     if (!wc.isDestroyed()) wc.send(channel, payload)
   }
+}
+
+// ── Interactive UI bridge (ExtensionUIContext → chat panel) ─────────────────
+// The vsurf browser skill (and any extension) asks the user for choices via
+// ui.select/confirm/input. In the TUI these render as terminal dialogs; here
+// they travel as byeppt:ui-request events to the chat panel, which answers via
+// the 'agent:ui-respond' IPC. Without this bridge a select() would pend
+// forever and the run would look stuck with a spinner.
+
+type ExtensionUIContext = import('@warmshao/vsurf').ExtensionUIContext
+
+const uiWaiters = new Map<string, (value: unknown) => void>()
+let uiSeq = 0
+
+function uiAsk(payload: Record<string, unknown>): Promise<unknown> {
+  const reqId = `ui-${++uiSeq}`
+  console.log('[agent] ui-request issued:', reqId, payload.kind, payload.title)
+  return new Promise((resolve) => {
+    uiWaiters.set(reqId, resolve)
+    broadcast('agent:event', { type: 'byeppt:ui-request', reqId, ...payload })
+  })
+}
+
+function settleUiRequest(reqId: string, value: unknown): void {
+  const resolve = uiWaiters.get(reqId)
+  if (!resolve) return
+  uiWaiters.delete(reqId)
+  console.log('[agent] ui-request settled:', reqId, value === undefined ? '(declined)' : '(answered)')
+  resolve(value)
+  // every open chat panel clears the card, not just the one that answered
+  broadcast('agent:event', { type: 'byeppt:ui-resolved', reqId })
+}
+
+/** Decline every pending UI request (abort / session teardown). */
+function declineAllUiRequests(): void {
+  for (const reqId of [...uiWaiters.keys()]) settleUiRequest(reqId, undefined)
+}
+
+function buildExtensionUiContext(): ExtensionUIContext {
+  const noop = () => {}
+  return {
+    select: (title: string, options: string[]) =>
+      uiAsk({ kind: 'select', title, options }).then((v) =>
+        typeof v === 'string' ? v : undefined,
+      ),
+    confirm: (title: string, message: string) =>
+      uiAsk({ kind: 'confirm', title, message }).then((v) => v === true),
+    input: (title: string, placeholder?: string) =>
+      uiAsk({ kind: 'input', title, placeholder }).then((v) =>
+        typeof v === 'string' && v.trim() ? v.trim() : undefined,
+      ),
+    notify: (message: string, type?: 'info' | 'warning' | 'error') =>
+      broadcast('agent:event', { type: 'byeppt:ui-notify', message, level: type ?? 'info' }),
+    // TUI-only surfaces — no-ops in the Electron host
+    onTerminalInput: () => noop,
+    setStatus: noop,
+    setWorkingMessage: noop,
+    setWorkingVisible: noop,
+    setWorkingIndicator: noop,
+    setHiddenThinkingLabel: noop,
+    setWidget: noop,
+    setFooter: noop,
+    setHeader: noop,
+    setTitle: noop,
+    custom: async () => {
+      throw new Error('custom overlay UI is not supported in the byeppt host')
+    },
+    pasteToEditor: noop,
+    setEditorText: noop,
+    getEditorText: () => '',
+    editor: async () => undefined,
+    addAutocompleteProvider: noop,
+    setEditorComponent: noop,
+    getEditorComponent: () => undefined,
+    theme: undefined,
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({ success: false, error: 'theme is owned by byeppt' }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: noop,
+  } as unknown as ExtensionUIContext
 }
 
 async function ensureStores(): Promise<{
@@ -201,6 +284,14 @@ async function ensureSession(): Promise<AgentSession | null> {
     // The kernel's batch image path (image_gen.py) reads <cwd>/.env — mirror
     // the Settings image backend there before the kernel can spawn.
     await syncImageGenEnvFile()
+    // First-run kernel env: ensure uv + install byeppt-pptx-py (and its deps) into
+    // the vsurf kernel venv. Runs in the background and streams progress to the
+    // renderer; never blocks session creation and never throws here.
+    void prepareKernelEnvironment((message) =>
+      broadcast('agent:event', { type: 'byeppt:kernel-progress', message }),
+    ).then((r) => {
+      broadcast('agent:event', { type: 'byeppt:kernel-ready', ok: r.ok, error: r.error })
+    })
     const resourceLoader = new s.DefaultResourceLoader({
       cwd: agentDir(),
       agentDir: agentDir(),
@@ -240,6 +331,11 @@ async function ensureSession(): Promise<AgentSession | null> {
       }
     })
     session = created
+    // Wire the interactive UI bridge (browser connection picker, extension
+    // select/confirm/input dialogs) into the chat panel — without it a
+    // ui.select() pends forever and the run looks stuck.
+    await created.bindExtensions({ uiContext: buildExtensionUiContext() })
+    console.log('[agent] extension UI bridge bound')
     broadcast('agent:status', await getStatus())
     return created
   })()
@@ -291,8 +387,15 @@ export function registerAgentIpc(): void {
 
   ipcMain.handle('agent:abort', async () => {
     if (!session) return { ok: true }
+    declineAllUiRequests()
     await session.abort()
     broadcast('agent:status', await getStatus())
+    return { ok: true }
+  })
+
+  /** Chat panel answering a byeppt:ui-request card (select/confirm/input). */
+  ipcMain.handle('agent:ui-respond', (_e, reqId: string, value: unknown) => {
+    settleUiRequest(String(reqId), value ?? undefined)
     return { ok: true }
   })
 
@@ -308,6 +411,7 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle('agent:new-session', async () => {
+    declineAllUiRequests()
     if (session) {
       const old = session
       session = null

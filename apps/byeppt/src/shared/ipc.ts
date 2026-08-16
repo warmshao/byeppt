@@ -55,6 +55,8 @@ export interface AgentApi {
   abort: () => Promise<{ ok: boolean }>
   setModel: (sel: { provider: string; id: string }) => Promise<{ ok: boolean; error?: string }>
   newSession: () => Promise<{ ok: boolean }>
+  /** Answer an interactive UI request card (select/confirm/input) from the agent */
+  respondUi: (reqId: string, value: unknown) => Promise<{ ok: boolean }>
   /** Jump to the shell Home tab and open the model settings pane (no-op standalone) */
   openModelSettings: () => Promise<{ ok: boolean }>
   /** Copy picked/pasted files into this deck's per-chat materials folder */

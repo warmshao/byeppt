@@ -50,6 +50,7 @@ import threading
 from collections.abc import Mapping
 
 import requests
+from urllib.parse import urlsplit
 from image_backends.backend_common import (
     MAX_RETRIES,
     download_image,
@@ -315,15 +316,33 @@ def _gpt_image_options(model: str) -> tuple[dict, str]:
     return options, output_ext
 
 
-def _image_generations_url(base_url: str | None) -> str:
+def _normalize_api_base(base_url: str | None) -> str:
+    """Normalize an OpenAI-compatible base URL to include a /v1 API prefix.
+
+    Host-only bases (e.g. ``https://api.openai.com`` or a relay root) get
+    ``/v1`` appended so the generated ``/images/*`` paths match the official
+    layout. Bases that already carry a path (``/v1``, ``/custom``, a full
+    ``/images/*`` endpoint) are kept as-is so custom-prefixed relays work.
+    """
     base = (base_url or DEFAULT_BASE_URL).rstrip("/")
+    if not base:
+        return DEFAULT_BASE_URL
+    path = urlsplit(base).path
+    if path and path != "/":
+        # Already versioned or custom-prefixed: leave it alone.
+        return base
+    return f"{base}/v1"
+
+
+def _image_generations_url(base_url: str | None) -> str:
+    base = _normalize_api_base(base_url)
     if base.endswith("/images/generations"):
         return base
     return f"{base}/images/generations"
 
 
 def _image_edits_url(base_url: str | None) -> str:
-    base = (base_url or DEFAULT_BASE_URL).rstrip("/")
+    base = _normalize_api_base(base_url)
     if base.endswith("/images/edits"):
         return base
     if base.endswith("/images/generations"):

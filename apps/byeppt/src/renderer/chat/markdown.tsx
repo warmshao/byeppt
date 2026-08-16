@@ -55,7 +55,12 @@ export function renderMarkdown(text: string): ReactNode {
     const flushPara = () => {
       if (!para.length) return
       const body = para.join(' ').trim()
-      if (body) nodes.push(<p key={k()}>{renderInline(body)}</p>)
+      if (body) {
+        // separator-only lines (some models emit ────── between steps) → a rule,
+        // not a paragraph of box-drawing characters
+        if (/^[─━—–\-=_*·\s]{6,}$/.test(body)) nodes.push(<div key={k()} className="md-hr" />)
+        else nodes.push(<p key={k()}>{renderInline(body)}</p>)
+      }
       para = []
     }
     const flushList = () => {

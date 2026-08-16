@@ -7476,6 +7476,20 @@ body.show-curtain::after {
   /* separator between the AI panel and the deck canvas */
   border-right: 1px solid var(--border-subtle);
 }
+
+/* first-run kernel env progress banner (uv / python venv / python skills install) */
+.chat-kernel-progress {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* drag handle on the dock's right edge (straddles the separator border) */
 .chat-resize {
   width: 7px;
@@ -7573,6 +7587,10 @@ body.show-curtain::after {
 .md-h {
   font-weight: 600;
   margin: 10px 0 6px;
+}
+.md-hr {
+  border-top: 1px solid var(--border-subtle);
+  margin: 2px 0 8px;
 }
 .md-h1 {
   font-size: 15px;
@@ -8382,4 +8400,64 @@ body.show-curtain::after {
 .ai-rollback-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── Clarify / UI-request card inside the narrow chat dock ────────────────
+   The card styles were ported from a much wider reference panel (16px base);
+   inside the ~340px chat dock they read oversized next to 13px chat rows —
+   rescale to the panel's type scale. */
+.chat-panel .ai-clarify-card {
+  font-size: 13px;
+  padding: 10px 12px;
+}
+.chat-panel .ai-clarify-head {
+  margin: -10px -12px 10px;
+  padding: 9px 12px;
+}
+.chat-panel .ai-clarify-head-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.chat-panel .ai-clarify-head-progress {
+  font-size: 12px;
+  min-width: 3em;
+}
+.chat-panel .ai-clarify-head-arrow {
+  font-size: 14px;
+}
+.chat-panel .ai-clarify-q {
+  min-height: 0;
+  margin-bottom: 10px;
+}
+.chat-panel .ai-clarify-label {
+  font-size: 13px;
+}
+.chat-panel .ai-clarify-desc {
+  font-size: 12px;
+}
+.chat-panel .ai-clarify-opt {
+  padding: 6px 10px;
+}
+.chat-panel .ai-clarify-opt-label {
+  font-size: 13px;
+  font-weight: 400;
+}
+.chat-panel .ai-clarify-other {
+  font-size: 13px;
+  min-height: 32px;
+  line-height: 1.5;
+}
+.chat-panel .ai-clarify-skip,
+.chat-panel .ai-clarify-submit {
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.chat-panel .ai-clarify-next {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+}
+.chat-panel .ai-clarify-count {
+  font-size: 12px;
 }

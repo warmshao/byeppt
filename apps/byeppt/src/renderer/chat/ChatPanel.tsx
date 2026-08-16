@@ -451,6 +451,97 @@ function ClarifyCard({
   )
 }
 
+// ── Interactive UI request (ExtensionUIContext bridge) ─────────────────────
+
+/** A select/confirm/input dialog the agent asked for (browser connection picker etc.) */
+interface UiRequest {
+  reqId: string
+  kind: 'select' | 'confirm' | 'input'
+  title: string
+  options?: string[]
+  message?: string
+  placeholder?: string
+}
+
+function UiRequestCard({
+  req,
+  onAnswer,
+}: {
+  req: UiRequest
+  onAnswer: (value: unknown) => void
+}) {
+  const { t } = useI18n()
+  const [text, setText] = useState('')
+  return (
+    <div className="ai-clarify-card">
+      <div className="ai-clarify-head">
+        <span className="ai-clarify-head-label">{req.title}</span>
+      </div>
+      {req.kind === 'select' && (
+        <div className="ai-clarify-q">
+          <div className="ai-clarify-opts">
+            {(req.options ?? []).map((opt) => (
+              <button key={opt} className="ai-clarify-opt" onClick={() => onAnswer(opt)}>
+                <span className="ai-clarify-opt-box" aria-hidden />
+                <span className="ai-clarify-opt-label">{opt}</span>
+                <span className="ai-clarify-opt-arrow" aria-hidden>
+                  ›
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="ai-clarify-actions">
+            <span className="ai-clarify-actions-btns">
+              <button className="ai-clarify-skip" onClick={() => onAnswer(undefined)}>
+                {t('aiClarifySkip')}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+      {req.kind === 'confirm' && (
+        <div className="ai-clarify-q">
+          {req.message && <div className="ai-clarify-desc">{req.message}</div>}
+          <div className="ai-clarify-actions">
+            <span className="ai-clarify-actions-btns">
+              <button className="ai-clarify-skip" onClick={() => onAnswer(false)}>
+                {t('aiClarifySkip')}
+              </button>
+              <button className="ai-clarify-submit" onClick={() => onAnswer(true)}>
+                {t('aiClarifySubmit')}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+      {req.kind === 'input' && (
+        <div className="ai-clarify-q">
+          <input
+            className="ai-clarify-other"
+            autoFocus
+            placeholder={req.placeholder}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) onAnswer(text)
+            }}
+          />
+          <div className="ai-clarify-actions">
+            <span className="ai-clarify-actions-btns">
+              <button className="ai-clarify-skip" onClick={() => onAnswer(undefined)}>
+                {t('aiClarifySkip')}
+              </button>
+              <button className="ai-clarify-submit" onClick={() => onAnswer(text)}>
+                {t('aiClarifySubmit')}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── The panel ───────────────────────────────────────────────────────────────
 
 export function ChatPanel({ filePath }: { filePath: string | null }) {
@@ -459,6 +550,8 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<PendingFile[]>([])
   const [status, setStatus] = useState<AgentStatus | null>(null)
+  /** First-run kernel env progress banner (byeppt:kernel-progress / byeppt:kernel-ready) */
+  const [kernelProgress, setKernelProgress] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const pickerRef = useRef<HTMLInputElement | null>(null)
@@ -474,6 +567,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   const historyBatchActiveRef = useRef(false)
   /** Rollback point id for the last run that edited the deck (drives the rollback button) */
   const [snapshotId, setSnapshotId] = useState<number | null>(null)
+  const [uiRequest, setUiRequest] = useState<UiRequest | null>(null)
   const clarification = useSyncExternalStore(subscribeClarification, getPendingClarification)
 
   const finishHistoryBatch = useCallback(async () => {
@@ -495,6 +589,32 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     void window.agentApi.status().then(setStatus)
     const offStatus = window.agentApi.onStatus(setStatus)
     const offEvent = window.agentApi.onEvent((evt: AgentEventPayload) => {
+      // Kernel env bootstrap progress (first-run uv / venv / python-skill install)
+      if (evt.type === 'byeppt:kernel-progress') {
+        setKernelProgress(typeof evt.message === 'string' ? evt.message : '正在准备 Python 环境…')
+        return
+      }
+      if (evt.type === 'byeppt:kernel-ready') {
+        setKernelProgress(null)
+        return
+      }
+      // ── Interactive UI requests (ExtensionUIContext bridge) ──
+      if (evt.type === 'byeppt:ui-request') {
+        setUiRequest({
+          reqId: String(evt.reqId),
+          kind: evt.kind as UiRequest['kind'],
+          title: String(evt.title ?? ''),
+          ...(Array.isArray(evt.options) ? { options: evt.options.map(String) } : {}),
+          ...(typeof evt.message === 'string' ? { message: evt.message } : {}),
+          ...(typeof evt.placeholder === 'string' ? { placeholder: evt.placeholder } : {}),
+        })
+        return
+      }
+      if (evt.type === 'byeppt:ui-resolved') {
+        setUiRequest((cur) => (cur?.reqId === evt.reqId ? null : cur))
+        return
+      }
+      //
       // ── Per-run history snapshot flow (deck edits collapse into one rollback point) ──
       if (evt.type === 'agent_start') {
         void window.slidesApi.beginHistoryBatch().then((ok) => {
@@ -609,6 +729,13 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
           case 'byeppt:error':
             next.push({ id: nextId(), kind: 'error', text: String(evt.message ?? '') })
             break
+          case 'byeppt:ui-notify':
+            next.push({
+              id: nextId(),
+              kind: evt.level === 'error' ? 'error' : 'notice',
+              text: String(evt.message ?? ''),
+            })
+            break
           default:
             return prev
         }
@@ -708,9 +835,16 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   const abort = useCallback(() => {
     // A pending survey card would otherwise wait forever on a dead run
     settleClarification({ answers: '', cancelled: true })
+    // Same for a pending interactive UI request (main declines all waiters on abort)
+    setUiRequest(null)
     void finishHistoryBatch()
     void window.agentApi.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const answerUiRequest = useCallback((req: UiRequest, value: unknown) => {
+    setUiRequest((cur) => (cur?.reqId === req.reqId ? null : cur))
+    void window.agentApi.respondUi(req.reqId, value ?? null)
   }, [])
 
   const streaming = status?.streaming ?? false
@@ -718,6 +852,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
 
   return (
     <div className="chat-panel">
+      {kernelProgress && <div className="chat-kernel-progress">{kernelProgress}</div>}
       <div className="chat-list" ref={listRef}>
         {status && !status.ready && (
           <div className="chat-row chat-nomodel">
@@ -783,7 +918,12 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
           </div>
         )}
       </div>
-      {clarification ? (
+      {uiRequest ? (
+        /* Interactive select/confirm/input the agent asked for (browser picker etc.) */
+        <div className="chat-input-row">
+          <UiRequestCard req={uiRequest} onAnswer={(v) => answerUiRequest(uiRequest, v)} />
+        </div>
+      ) : clarification ? (
         /* Docked in the composer slot while the survey is pending */
         <div className="chat-input-row">
           <ClarifyCard

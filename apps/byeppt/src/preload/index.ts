@@ -321,6 +321,8 @@ const agentApi: AgentApi = {
   abort: () => ipcRenderer.invoke('agent:abort'),
   setModel: (sel: { provider: string; id: string }) => ipcRenderer.invoke('agent:set-model', sel),
   newSession: () => ipcRenderer.invoke('agent:new-session'),
+  respondUi: (reqId: string, value: unknown) =>
+    ipcRenderer.invoke('agent:ui-respond', reqId, value),
   openModelSettings: async () => {
     try {
       return (await ipcRenderer.invoke('shell:open-agent-settings')) ?? { ok: false }
