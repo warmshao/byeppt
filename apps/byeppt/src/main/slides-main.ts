@@ -232,6 +232,8 @@ import type {
 import { buildPrintDocumentHtml } from '../shared/print-html'
 
 import { tm } from './i18n-main'
+import { readAppSettings, updateAppSettings } from './app-settings'
+import { registerAgentIpc } from './agent/session'
 import { tiffToPng } from './tiff-decode'
 import {
   beginHistoryBatch,
@@ -925,34 +927,6 @@ function chartColorSchemes(
 
 let ipcRegistered = false
 
-// ── UI theme preference (userData/app-settings.json) ─────────────────────
-type UiThemePref = 'light' | 'dark' | 'system'
-
-function appSettingsPath(): string {
-  return join(app.getPath('userData'), 'app-settings.json')
-}
-
-function readUiTheme(): UiThemePref {
-  try {
-    const raw = JSON.parse(readFileSync(appSettingsPath(), 'utf8')) as { theme?: string }
-    return raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system'
-  } catch {
-    return 'system'
-  }
-}
-
-function writeUiTheme(theme: UiThemePref): void {
-  let data: Record<string, unknown> = {}
-  try {
-    data = JSON.parse(readFileSync(appSettingsPath(), 'utf8')) as Record<string, unknown>
-  } catch {
-    /* first write */
-  }
-  data.theme = theme
-  mkdirSync(dirname(appSettingsPath()), { recursive: true })
-  writeFileSync(appSettingsPath(), JSON.stringify(data, null, 2))
-}
-
 export function registerSlidesIpc(): void {
   if (ipcRegistered) return
   ipcRegistered = true
@@ -963,11 +937,11 @@ export function registerSlidesIpc(): void {
 
   // UI theme preference (standalone byeppt owns this; persisted in userData/app-settings.json)
   ipcMain.removeHandler('app:get-theme')
-  ipcMain.handle('app:get-theme', () => readUiTheme())
+  ipcMain.handle('app:get-theme', () => readAppSettings().theme ?? 'system')
   ipcMain.removeHandler('app:set-theme')
   ipcMain.handle('app:set-theme', (_e, theme: string) => {
     const t = theme === 'light' || theme === 'dark' ? theme : 'system'
-    writeUiTheme(t)
+    updateAppSettings({ theme: t })
     for (const win of BrowserWindow.getAllWindows())
       if (!win.isDestroyed()) win.webContents.send('app:theme-changed', t)
   })
@@ -3826,6 +3800,7 @@ export function startSlidesStandalone(): void {
   app.whenReady().then(async () => {
     setUiLang(normalizeLang(process.env.BYEPPT_LANG ?? app.getLocale()))
     registerSlidesIpc()
+    registerAgentIpc()
     registerProjectIpc()
     Menu.setApplicationMenu(buildSlidesMenu())
     const win = createSlidesWindow(pendingOpenPath)

@@ -14,6 +14,41 @@ export type { SlideComment, SectionInfo } from '@byeppt/pptx-engine'
 
 export type UiTheme = 'light' | 'dark' | 'system'
 
+// ── Agent (vsurf SDK) bridge ──────────────────────────────────────────────
+
+export interface AgentModelInfo {
+  provider: string
+  id: string
+  name: string
+}
+
+export interface AgentStatus {
+  sdkReady: boolean
+  /** A model with credentials is configured and selected */
+  ready: boolean
+  streaming: boolean
+  model?: AgentModelInfo
+  /** Models that have credentials configured */
+  availableModels: AgentModelInfo[]
+  error?: string
+}
+
+/** AgentSessionEvent forwarded from the main process; structurally typed (plain JSON). */
+export interface AgentEventPayload {
+  type: string
+  [key: string]: unknown
+}
+
+export interface AgentApi {
+  status: () => Promise<AgentStatus>
+  prompt: (text: string) => Promise<{ ok: boolean; error?: string }>
+  abort: () => Promise<{ ok: boolean }>
+  setModel: (sel: { provider: string; id: string }) => Promise<{ ok: boolean; error?: string }>
+  newSession: () => Promise<{ ok: boolean }>
+  onEvent: (handler: (evt: AgentEventPayload) => void) => () => void
+  onStatus: (handler: (status: AgentStatus) => void) => () => void
+}
+
 export interface OpenResult {
   path: string
   slides: RenderSlide[]
@@ -1264,5 +1299,6 @@ export interface SlidesApi {
 declare global {
   interface Window {
     slidesApi: SlidesApi
+    agentApi: AgentApi
   }
 }

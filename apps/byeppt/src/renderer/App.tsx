@@ -61,6 +61,7 @@ import { ToastHost } from './components/toast'
 import { showToast } from './components/toast-bus'
 import { t, useI18n } from './i18n/locale'
 import { ChartDataDialog } from './components/ChartDataDialog'
+import { ChatPanel } from './chat/ChatPanel'
 import type { BrushFormat } from './format-brush'
 import { isTextUndoTarget, shouldRouteUndoToDeck } from './undo-routing'
 import type {
@@ -320,6 +321,15 @@ export function App() {
     window.slidesApi.setAutoSavePref?.(autoSave)
   }, [autoSave])
   const [showFormat, setShowFormat] = useState(false)
+  const [showChat, setShowChat] = useState(
+    () => localStorage.getItem('byeppt-show-chat') !== '0',
+  )
+  const toggleChat = useCallback(() => {
+    setShowChat((v) => {
+      localStorage.setItem('byeppt-show-chat', v ? '0' : '1')
+      return !v
+    })
+  }, [])
   const [_recent, setRecent] = useState<string[]>([])
   const consumePendingRef = useRef<ReturnType<typeof window.slidesApi.consumePendingOpen> | null>(
     null,
@@ -2604,6 +2614,22 @@ export function App() {
       />
 
       <div className="app-main">
+        {slide && viewMode !== 'reading' && viewMode !== 'sorter' && (
+          <div className={`chat-dock${showChat ? '' : ' collapsed'}`}>
+            {showChat ? (
+              <ChatPanel onCollapse={toggleChat} />
+            ) : (
+              <button
+                className="chat-rail"
+                onClick={toggleChat}
+                data-tip={t('chatExpand')}
+                aria-label={t('chatExpand')}
+              >
+                AI
+              </button>
+            )}
+          </div>
+        )}
         <div className="app-content">
           <div className="workspace">
             {!slide ? (

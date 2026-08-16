@@ -74,6 +74,7 @@ import type {
   SlidesApi,
   UiTheme,
 } from '../shared/ipc'
+import type { AgentApi, AgentEventPayload, AgentStatus } from '../shared/ipc'
 
 const api: SlidesApi = {
   getLanguage: () => ipcRenderer.invoke('app:get-language'),
@@ -290,6 +291,25 @@ const api: SlidesApi = {
 }
 
 contextBridge.exposeInMainWorld('slidesApi', api)
+
+const agentApi: AgentApi = {
+  status: () => ipcRenderer.invoke('agent:status'),
+  prompt: (text: string) => ipcRenderer.invoke('agent:prompt', text),
+  abort: () => ipcRenderer.invoke('agent:abort'),
+  setModel: (sel: { provider: string; id: string }) => ipcRenderer.invoke('agent:set-model', sel),
+  newSession: () => ipcRenderer.invoke('agent:new-session'),
+  onEvent: (handler: (evt: AgentEventPayload) => void) => {
+    const listener = (_e: IpcRendererEvent, evt: AgentEventPayload) => handler(evt)
+    ipcRenderer.on('agent:event', listener)
+    return () => ipcRenderer.removeListener('agent:event', listener)
+  },
+  onStatus: (handler: (status: AgentStatus) => void) => {
+    const listener = (_e: IpcRendererEvent, status: AgentStatus) => handler(status)
+    ipcRenderer.on('agent:status', listener)
+    return () => ipcRenderer.removeListener('agent:status', listener)
+  },
+}
+contextBridge.exposeInMainWorld('agentApi', agentApi)
 
 const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),
