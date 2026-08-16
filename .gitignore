@@ -4,6 +4,6 @@ release/
 dist/
 *.log
 .DS_Store
-build/
+skills/**/build/
 *.egg-info/
 __pycache__/
