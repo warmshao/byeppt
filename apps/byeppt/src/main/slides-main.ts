@@ -28,6 +28,7 @@ import {
   appMenuLabels,
   configuredDefaultSaveDir,
   contextMenuLabels,
+  fetchRemoteImage,
   installContextMenu,
   installNavigationGuard,
   safeExternalUrl,
@@ -2564,6 +2565,100 @@ export function registerSlidesIpc(): void {
     }
     return rebuildSlide(session, op.slideIndex)
   })
+
+  // Download an image from a URL and insert it into the given page (agent insert_web_image
+  // tool; downloading in the main process avoids renderer CORS).
+  ipcMain.handle(
+    'slides:insert-image-url',
+    async (
+      e,
+      op: {
+        slideIndex: number
+        url: string
+        xPx: number
+        yPx: number
+        wPx: number
+        hPx: number
+        fitWidthPx: number
+      },
+    ) => {
+      const session = sessions.get(e.sender.id)
+      if (!session) return null
+      const slide = session.opened.deck.slides[op.slideIndex]
+      if (!slide) return null
+      try {
+        // The URL originates from agent tool calls (prompt-injectable via search
+        // results), so fetchRemoteImage applies SSRF hardening (http(s) only, no
+        // private/link-local targets, per-redirect validation) plus CDN-friendly
+        // headers and transient-error retries.
+        const resp = await fetchRemoteImage(String(op.url))
+        if (!resp || !resp.ok) return null
+        const buf = Buffer.from(await resp.arrayBuffer())
+        const ct = resp.headers.get('content-type') ?? ''
+        const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg'
+        const baseWidthPx = session.opened.deck.size.cx / EMU_PER_PX_96
+        const scale = op.fitWidthPx / baseWidthPx
+        const toEmu = (px: number) => Math.round((px / scale) * EMU_PER_PX_96)
+        pushHistory(session)
+        const el = addPicture(session.opened, slide, {
+          bytes: new Uint8Array(buf),
+          ext,
+          offset: {
+            x: toEmu(op.xPx),
+            y: toEmu(op.yPx),
+            cx: Math.max(1, toEmu(op.wPx)),
+            cy: Math.max(1, toEmu(op.hPx)),
+          },
+        })
+        if (!el) {
+          session.undoStack.pop()
+          scheduleHistoryNotify(session)
+          return null
+        }
+        session.fitWidthPx = op.fitWidthPx
+        const rebuilt = rebuildSlide(session, op.slideIndex)
+        return rebuilt ? { slide: rebuilt, sourceId: el.id } : null
+      } catch {
+        return null
+      }
+    },
+  )
+
+  // Download an image from a URL and swap it into an existing picture in place
+  // (frame/z-order/effects survive). Same URL hardening as slides:insert-image-url.
+  ipcMain.handle(
+    'slides:replace-picture-url',
+    async (e, op: { slideIndex: number; sourceId: string; url: string; keepSrcRect?: boolean }) => {
+      const session = sessions.get(e.sender.id)
+      if (!session) return null
+      const slide = session.opened.deck.slides[op.slideIndex]
+      if (!slide) return null
+      try {
+        const resp = await fetchRemoteImage(String(op.url))
+        if (!resp || !resp.ok) return null
+        const buf = Buffer.from(await resp.arrayBuffer())
+        const ct = resp.headers.get('content-type') ?? ''
+        const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg'
+        pushHistory(session)
+        const ok = replacePictureBytes(
+          session.opened,
+          slide,
+          String(op.sourceId),
+          new Uint8Array(buf),
+          ext,
+          op.keepSrcRect ? { keepSrcRect: true } : undefined,
+        )
+        if (!ok) {
+          session.undoStack.pop()
+          scheduleHistoryNotify(session)
+          return null
+        }
+        return rebuildSlide(session, op.slideIndex)
+      } catch {
+        return null
+      }
+    },
+  )
 
   // Show a dialog to pick video/audio and embed it. Video poster frame prefers the system thumbnail (QuickLook), falling back to a solid color on failure.
   ipcMain.handle(

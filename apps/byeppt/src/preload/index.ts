@@ -75,6 +75,7 @@ import type {
   UiTheme,
 } from '../shared/ipc'
 import type { AgentApi, AgentEventPayload, AgentStatus } from '../shared/ipc'
+import type { DeckBridgeApi, DeckBridgeResult } from '../shared/ipc'
 
 const api: SlidesApi = {
   getLanguage: () => ipcRenderer.invoke('app:get-language'),
@@ -186,6 +187,21 @@ const api: SlidesApi = {
   addImageBytes: (op: AddImageBytesOp) => ipcRenderer.invoke('slides:add-image-bytes', op),
   replacePictureBytes: (op: ReplacePictureBytesOp) =>
     ipcRenderer.invoke('slides:replace-picture-bytes', op),
+  insertImageUrl: (op: {
+    slideIndex: number
+    url: string
+    xPx: number
+    yPx: number
+    wPx: number
+    hPx: number
+    fitWidthPx: number
+  }) => ipcRenderer.invoke('slides:insert-image-url', op),
+  replacePictureUrl: (op: {
+    slideIndex: number
+    sourceId: string
+    url: string
+    keepSrcRect?: boolean
+  }) => ipcRenderer.invoke('slides:replace-picture-url', op),
   insertMedia: (slideIndex: number, kind: 'video' | 'audio', fitWidthPx: number) =>
     ipcRenderer.invoke('slides:insert-media', slideIndex, kind, fitWidthPx),
   addMediaBytes: (op: AddMediaBytesOp) => ipcRenderer.invoke('slides:add-media-bytes', op),
@@ -310,6 +326,24 @@ const agentApi: AgentApi = {
   },
 }
 contextBridge.exposeInMainWorld('agentApi', agentApi)
+
+const deckBridgeApi: DeckBridgeApi = {
+  onInvoke: (handler) => {
+    const listener = (
+      _e: IpcRendererEvent,
+      req: { id: string; tool: string; args: Record<string, unknown> },
+    ) => handler(req)
+    ipcRenderer.on('deck:invoke', listener)
+    return () => ipcRenderer.removeListener('deck:invoke', listener)
+  },
+  sendResult: (msg: DeckBridgeResult) => ipcRenderer.send('deck:result', msg),
+  onAbort: (handler) => {
+    const listener = (_e: IpcRendererEvent, id: string) => handler(id)
+    ipcRenderer.on('deck:abort', listener)
+    return () => ipcRenderer.removeListener('deck:abort', listener)
+  },
+}
+contextBridge.exposeInMainWorld('deckBridge', deckBridgeApi)
 
 const projectApi: ProjectApi = {
   resolveChat: (args) => ipcRenderer.invoke('project:resolveChat', args),

@@ -49,6 +49,26 @@ export interface AgentApi {
   onStatus: (handler: (status: AgentStatus) => void) => () => void
 }
 
+// ── Deck bridge (agent → slides renderer tool invocation) ────────────────
+
+/** Result payload the renderer posts back for one deck:invoke call. */
+export interface DeckBridgeResult {
+  id: string
+  result?: { output: string; isError?: boolean; mutated?: boolean; summary?: string }
+  error?: string
+}
+
+export interface DeckBridgeApi {
+  /** Main → renderer: run one slide tool */
+  onInvoke: (
+    handler: (req: { id: string; tool: string; args: Record<string, unknown> }) => void,
+  ) => () => void
+  /** Renderer → main: settle one invocation (send, not invoke) */
+  sendResult: (msg: DeckBridgeResult) => void
+  /** Main → renderer: abort a pending invocation */
+  onAbort: (handler: (id: string) => void) => () => void
+}
+
 export interface OpenResult {
   path: string
   slides: RenderSlide[]
@@ -1111,6 +1131,23 @@ export interface SlidesApi {
   replacePictureBytes: (
     op: ReplacePictureBytesOp,
   ) => Promise<RenderSlide | { error: 'unsupported'; ext: string } | null>
+  /** Download an image URL and insert it into the given page (agent tool; download in the main process avoids CORS) */
+  insertImageUrl: (op: {
+    slideIndex: number
+    url: string
+    xPx: number
+    yPx: number
+    wPx: number
+    hPx: number
+    fitWidthPx: number
+  }) => Promise<{ slide: RenderSlide; sourceId: string } | null>
+  /** Download a URL and swap it into an existing picture in place (frame/z-order/effects survive) */
+  replacePictureUrl: (op: {
+    slideIndex: number
+    sourceId: string
+    url: string
+    keepSrcRect?: boolean
+  }) => Promise<RenderSlide | null>
   /** Show the system dialog to pick a video/audio file and embed it into the current page */
   insertMedia: (
     slideIndex: number,
@@ -1300,5 +1337,6 @@ declare global {
   interface Window {
     slidesApi: SlidesApi
     agentApi: AgentApi
+    deckBridge: DeckBridgeApi
   }
 }

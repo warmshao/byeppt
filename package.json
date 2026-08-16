@@ -10,8 +10,7 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "skills/*"
+    "packages/*"
   ],
   "scripts": {
     "postinstall": "install-electron",
