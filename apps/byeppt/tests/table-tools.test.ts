@@ -21,6 +21,7 @@ function makeAccess() {
     getSlides: () => [SLIDE],
     getCurrent: () => 0,
     getSelectedIds: () => [],
+    getImages: () => new Map(),
     applySlide: (idx) => {
       applied.push({ idx })
     },

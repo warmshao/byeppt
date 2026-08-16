@@ -37,6 +37,8 @@ export interface SlideToolResult {
   isError?: boolean
   mutated?: boolean
   summary?: string
+  /** PNG base64 (no data: prefix) — vision results like view_slide */
+  image?: string
 }
 
 interface ExecutorState {
@@ -458,6 +460,40 @@ async function executeTool(
         output: formatSlideDump(slide),
         mutated: false,
         summary: t('aiSumReadSlide', { n: idx + 1 }),
+      }
+    }
+
+    case 'view_slide': {
+      // slideIndex optional: default to the page the user is currently looking at
+      const idx =
+        call.input.slideIndex === undefined || call.input.slideIndex === null
+          ? access.getCurrent()
+          : Number(call.input.slideIndex)
+      const slide = slides[idx]
+      if (!slide)
+        return fail(t('aiFailReadSlide'), `slideIndex out of range (0-${slides.length - 1})`)
+      try {
+        // Dynamic import: export-render pulls in react-konva, which must stay
+        // out of this module's graph (node-side tests import executors too).
+        // pixelRatio 1: the 1280px-wide bitmap is plenty for model vision and
+        // half the tokens of the 2x export default
+        const { renderSlidesToPngBase64 } = await import('../export-render')
+        const [png] = await renderSlidesToPngBase64([slide], access.getImages(), 1)
+        if (!png) return fail(t('aiFailReadSlide'), `Failed to render page ${idx + 1} to an image`)
+        return {
+          output:
+            `Page ${idx + 1} rendered as it appears on the user's canvas (PNG attached). ` +
+            'Inspect it visually: alignment, spacing, overlaps, overflow, contrast, visual hierarchy. ' +
+            'If you cannot see any image, your model lacks vision — fall back to read_slide + the execute_slide_script audit.',
+          image: png,
+          mutated: false,
+          summary: t('aiSumReadSlide', { n: idx + 1 }),
+        }
+      } catch (err) {
+        return fail(
+          t('aiFailReadSlide'),
+          `Failed to render page ${idx + 1}: ${err instanceof Error ? err.message : String(err)}`,
+        )
       }
     }
 

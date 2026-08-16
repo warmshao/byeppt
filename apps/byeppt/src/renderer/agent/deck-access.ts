@@ -23,6 +23,8 @@ export interface DeckAccess {
   getSlides(): RenderSlide[]
   getCurrent(): number
   getSelectedIds(): string[]
+  /** Loaded picture/background bitmaps (dataUrl key → element) for offscreen rendering */
+  getImages(): Map<string, HTMLImageElement>
   applySlide(slideIndex: number, updated: RenderSlide): void
   /** Replace the whole deck (after adding/removing slides) and jump to the goTo slide */
   applyDeck(slides: RenderSlide[], goTo?: number): void

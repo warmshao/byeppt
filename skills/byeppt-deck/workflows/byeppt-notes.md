@@ -19,7 +19,7 @@ environment, which does not exist here. This file is the authoritative mapping;
 | `project_manager.py init / import-sources / validate` | No project scaffold. The open deck is the project; write `<cwd>/design_spec.md` via ipython. `validate` is N/A (v2). |
 | `source_to_md.py` conversion | Read user material directly in the kernel (files/URLs via ipython); PPTX sources go through the app's own import, then `get_deck_context` / `read_slide`. |
 | Hand-written `svg_output/*.svg` pages | Native tools: `add_slide` + `execute_slide_script` (primary layout surface) and `add_text_box` / `add_shape` / `add_chart` / `add_smartart` / `add_table` for simple pages. |
-| `svg_quality_checker.py` first-page / final gates | The deterministic layout audit appended to every `execute_slide_script` result (overlap / overflow / out-of-bounds) — fix within the same turn, max 2 fix rounds. Deck-level QC = `get_deck_context` review pass after the last slide. |
+| `svg_quality_checker.py` first-page / final gates | The deterministic layout audit appended to every `execute_slide_script` result (overlap / overflow / out-of-bounds) — fix within the same turn, max 2 fix rounds. Deck-level QC = `get_deck_context` review pass + `view_slide` visual pass after the last slide. |
 | Live-preview browser editor (`scripts/svg_editor/server.py`) | N/A — the byeppt canvas is the live preview; the user watches edits in real time. |
 | `image_gen.py --manifest` (batch AI images) | Interactive path: `generate_image` tool. Batch path: `byeppt_pptx_py` image_gen via the sibling `byeppt-pptx-py` skill (the app exports the Settings image backend into the kernel env, so one configuration serves both). |
 | `image_search.py` / web-image review sheets | **Bundled** in `byeppt-pptx-py` (`search_images(...)` wrapper) — deterministic provider search (openverse/wikimedia keyless; pexels/pixabay via env keys). Fallback: vsurf `websearch` skill to find a URL + `insert_web_image`. Visual judgment is done by the agent, no review-sheet tooling. Attribution rules: `references/executor-web-image.md`. |
@@ -43,7 +43,8 @@ environment, which does not exist here. This file is the authoritative mapping;
 | `profiles/beautify-pptx.md` | Adapted as SKILL.md Route B. |
 | `template-fill-pptx.md`, `native-enhance-pptx.md`, `create-template.md`, `profiles/image-to-pptx.md` | **v2 — do not route to these.** They require ppt-master's project/OOXML environment. |
 | `stages/refine-spec.md` | The chat revision loop it describes maps to: revise `design_spec.md` via ipython after user feedback, before building. |
-| `stages/visual-review.md`, `stages/verify-charts.md`, `stages/customize-animations.md`, `stages/generate-audio.md`, `stages/live-preview.md`, `stages/resume-execute.md` | v2 / N/A in byeppt. |
+| `stages/visual-review.md` | In-app equivalent: the `view_slide` tool renders any page to a PNG the agent can see — run it after finishing each slide and during deck QC (the subagent/PNG-file pipeline in that stage file stays v2). |
+| `stages/verify-charts.md`, `stages/customize-animations.md`, `stages/generate-audio.md`, `stages/live-preview.md`, `stages/resume-execute.md` | v2 / N/A in byeppt. |
 
 ## Executor references caveat
 

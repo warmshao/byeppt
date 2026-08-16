@@ -62,9 +62,66 @@ export async function buildSlideCustomTools(sdk: VsurfSdk): Promise<ToolDefiniti
       },
     }),
   )
+  tools.push(buildViewSlideTool(sdk, Type))
   tools.push(buildGenerateImageTool(sdk, Type))
   tools.push(buildEditImageTool(sdk, Type))
   return tools
+}
+
+/**
+ * Render one page of the open deck to a PNG exactly as the user sees it and
+ * return it as image content for visual inspection. Read-only; the renderer
+ * does the offscreen Konva render (same pipeline as PNG export). Kept out of
+ * SLIDE_TOOL_DEFS because its result maps to text + image content, not text only.
+ */
+function buildViewSlideTool(
+  sdk: VsurfSdk,
+  Type: typeof import('typebox').Type,
+): ToolDefinition {
+  return sdk.defineTool({
+    name: 'view_slide',
+    label: 'View Slide',
+    description:
+      'Render a page of the open deck to a PNG (exactly as the user sees it on canvas) and return it as an image you can see. ' +
+      'Use it to VISUALLY verify your edits: after finishing a slide\'s execute_slide_script / set_element_* work, ' +
+      'and during whole-deck QC — check alignment, spacing, overlap, text overflow, contrast, and visual hierarchy. ' +
+      'Prefer this over inferring layout from read_slide coordinates alone. ' +
+      'Omit slideIndex to view the page the user is currently looking at.',
+    parameters: Type.Object({
+      slideIndex: Type.Optional(
+        Type.Number({ description: 'Page number (0-based); omit for the page currently shown' }),
+      ),
+    }) as unknown as TSchema,
+    execute: async (_id, params, signal) => {
+      const p = (params ?? {}) as { slideIndex?: number }
+      try {
+        const r = await invokeOnActiveSlidesWindow(
+          'view_slide',
+          p.slideIndex === undefined ? {} : { slideIndex: p.slideIndex },
+          signal,
+        )
+        if (r.isError || !r.image) {
+          return {
+            content: [{ type: 'text' as const, text: r.isError ? `Error: ${r.output}` : r.output }],
+            details: { summary: r.summary, isError: r.isError === true, mutated: false },
+          }
+        }
+        return {
+          content: [
+            { type: 'text' as const, text: r.output },
+            { type: 'image' as const, data: r.image, mimeType: 'image/png' },
+          ],
+          details: { summary: r.summary, isError: false, mutated: false },
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${msg}` }],
+          details: { summary: undefined, isError: true, mutated: false },
+        }
+      }
+    },
+  })
 }
 
 interface PlaceParams {

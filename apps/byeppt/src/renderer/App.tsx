@@ -1113,6 +1113,8 @@ export function App() {
   deckCurrentRef.current = current
   const deckSelectedRef = useRef(selectedIds)
   deckSelectedRef.current = selectedIds
+  const deckImagesRef = useRef(images)
+  deckImagesRef.current = images
   const deckApplySlideRef = useRef(applySlide)
   deckApplySlideRef.current = applySlide
   const deckApplyDeckRef = useRef(applyDeck)
@@ -1122,6 +1124,7 @@ export function App() {
       getSlides: () => deckSlidesRef.current,
       getCurrent: () => deckCurrentRef.current,
       getSelectedIds: () => deckSelectedRef.current,
+      getImages: () => deckImagesRef.current,
       applySlide: (i, updated) => deckApplySlideRef.current(i, updated),
       applyDeck: (all, goTo) => deckApplyDeckRef.current(all, goTo),
       askClarification: (questions) => requestClarification(questions),

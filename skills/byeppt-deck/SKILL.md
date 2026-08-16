@@ -48,6 +48,13 @@ post-processing), `create-template` (authoring reusable template workspaces),
   violation in the same turn — adjust the script and re-run; max 2 fix rounds,
   then change the layout approach (fewer elements, bigger boxes, split the
   slide) instead of retrying the same geometry.
+- **Visual self-check.** `view_slide` renders a page to a PNG you can see —
+  the audit catches geometry, but not visual weight, contrast, cramped
+  whitespace, or a hero that misses its anchor. Call it after you finish a
+  slide's edits (once per slide, not after every micro-edit) and judge the
+  render against the design intent; fix what looks off with
+  `execute_slide_script` / `set_element_*`, then view once more to confirm.
+  Skip it only for trivial single-field edits (e.g. one color change).
 - **Data provenance (tool-enforced).** Charts and data-dense content require a
   declared `dataSource`: `user` (user supplied it), `document` (from provided
   source material), `search` (only after a real web search this run), or
@@ -144,9 +151,11 @@ Build §IX one page at a time, in order:
 After the last page: `get_deck_context` and review the whole deck against
 `design_spec.md` — roster coverage, palette/typography consistency, recurring
 chrome (headers, page numbers) alignment, no leftover sample-data labels
-undisclosed. `read_slide` any suspect page and fix with
-`execute_slide_script` / `set_element_*`. Then report completion with a short
-summary of what was built.
+undisclosed. Then the visual pass: `view_slide` every page (batch the calls a
+few at a time) and look for cross-page rhythm — consistent margins, aligned
+chrome, even visual density; `read_slide` any suspect page and fix with
+`execute_slide_script` / `set_element_*`, re-viewing each fixed page to
+confirm. Then report completion with a short summary of what was built.
 
 ### Large decks (>~15 slides)
 
@@ -172,8 +181,10 @@ changes.
 4. Restyle slide by slide: `execute_slide_script` to re-layout and re-style in
    place (preserve the text you captured; `set_element_text` only to restore,
    never to rewrite). Charts/tables are re-styled via `edit_chart` /
-   `edit_table_style`, data untouched.
-5. Deck QC pass as in Route A stage 4, checking no wording drifted.
+   `edit_table_style`, data untouched. `view_slide` each restyled page and
+   compare against the redesign intent before moving to the next.
+5. Deck QC pass as in Route A stage 4, checking no wording drifted and the new
+   visual system reads consistently across pages (`view_slide` every page).
 
 ## 5. Route C — Edit / refine
 
@@ -182,8 +193,9 @@ No gates needed for small, unambiguous requests.
 1. `get_deck_context`; `read_slide` the target slide(s).
 2. Single-element change → `set_element_text/style/transform/fill/stroke`.
    Multi-element or layout change → `execute_slide_script` (audit loop
-   applies). Structural changes → `add_*`, `edit_table_*`, `edit_chart`,
-   `delete_element`, `delete_slide`, `ungroup_element`, `replace_image`.
+   applies), then `view_slide` to visually confirm the result. Structural
+   changes → `add_*`, `edit_table_*`, `edit_chart`, `delete_element`,
+   `delete_slide`, `ungroup_element`, `replace_image`.
 3. Anything that changes deck-wide identity (palette, fonts, every-page
    chrome) → escalate to Route B with its style gate.
 4. Summarize what changed and where.

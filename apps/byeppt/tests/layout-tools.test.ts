@@ -210,6 +210,7 @@ describe('execute_layout_script tool', () => {
     getSlides: () => [slide],
     getCurrent: () => 0,
     getSelectedIds: () => [],
+    getImages: () => new Map(),
     applySlide: (_i, updated) => {
       applied = updated
     },

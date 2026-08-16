@@ -59,6 +59,8 @@ export interface DeckInvokeOutcome {
   isError?: boolean
   mutated?: boolean
   summary?: string
+  /** PNG base64 (no data: prefix) for vision tools like view_slide */
+  image?: string
 }
 
 /**

@@ -91,6 +91,7 @@ const access = (slide: RenderSlide): DeckAccess => ({
   getSlides: () => [slide],
   getCurrent: () => 0,
   getSelectedIds: () => [],
+  getImages: () => new Map(),
   applySlide: () => {},
   applyDeck: () => {},
   fitWidthPx: 1280,

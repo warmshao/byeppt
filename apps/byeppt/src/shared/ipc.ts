@@ -80,7 +80,14 @@ export interface AgentApi {
 /** Result payload the renderer posts back for one deck:invoke call. */
 export interface DeckBridgeResult {
   id: string
-  result?: { output: string; isError?: boolean; mutated?: boolean; summary?: string }
+  result?: {
+    output: string
+    isError?: boolean
+    mutated?: boolean
+    summary?: string
+    /** PNG base64 (no data: prefix) for vision tools like view_slide */
+    image?: string
+  }
   error?: string
 }
 
