@@ -10,21 +10,21 @@ ppt-master's deterministic Python pipeline, importable in the kernel.
 ## Locate the scripts
 
 ```python
-import byeppt_pptx
-byeppt_pptx.SCRIPTS_DIR   # bundled ppt-master scripts/ tree
+import byeppt_pptx_py
+byeppt_pptx_py.SCRIPTS_DIR   # bundled ppt-master scripts/ tree
 ```
 
 ## Call from the kernel
 
 ```python
 # Convert a project's svg_output/*.svg into exports/*.pptx
-await byeppt_pptx("svg_to_pptx", project="/path/to/project")
+await byeppt_pptx_py("svg_to_pptx", project="/path/to/project")
 
 # Quality-gate SVGs before conversion
-await byeppt_pptx("quality_check", path="/path/to/project", stage="final")
+await byeppt_pptx_py("quality_check", path="/path/to/project", stage="final")
 
 # Self-contained preview SVGs (images inlined)
-await byeppt_pptx("finalize_svg", project="/path/to/project")
+await byeppt_pptx_py("finalize_svg", project="/path/to/project")
 ```
 
 ## Shell usage (%%bash or subprocess)

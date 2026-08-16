@@ -1,0 +1,1143 @@
+"""Top-level orchestrator for PPTX -> SVG conversion.
+
+Public API: convert_pptx_to_svg(pptx_path, output_dir, options).
+
+Composes the per-slide pipeline:
+    OoxmlPackage -> shape_walker.walk_sp_tree
+                 -> per-shape dispatch (prstgeom / txbody / pic / ...)
+                 -> assembled SVG text + extracted media files
+
+Stages B-F will fill in the per-shape dispatch. For Stage A this entry just
+loads the package and reports basic per-slide structure to verify wiring.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from html import unescape
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
+
+from svg_to_pptx.animation_config import (
+    validate_animation_config_errors,
+    validate_transition_config,
+)
+
+from .animation_import import (
+    AnimationImportError,
+    import_slide_animation,
+)
+from .color_resolver import ColorPalette
+from .emu_units import NS
+from .import_diagnostics import ImportDiagnostic, append_diagnostic
+from .ooxml_loader import (
+    OoxmlPackage,
+    PartRef,
+    SlideRef,
+    part_show_master_sp,
+)
+from .slide_to_svg import assemble_part_solo, assemble_slide
+from .transition_import import (
+    TransitionImportError,
+    import_slide_transition,
+)
+
+
+_CJK_THEME_SCRIPTS = frozenset({"Hans", "Hant", "Jpan", "Hang"})
+_MANAGED_PRIMARY_SVG_RE = re.compile(
+    r"(?:slide_\d+|master_\d+_[A-Za-z0-9_-]+|layout_\d+_[A-Za-z0-9_-]+)\.svg"
+)
+_MANAGED_FLAT_SVG_RE = re.compile(r"slide_\d+\.svg")
+_MANAGED_TRANSITION_SOUND_RE = re.compile(
+    r"transition_sound_[0-9a-f]{16}\.wav"
+)
+_SVG_HREF_RE = re.compile(
+    r"\b(?:href|xlink:href)\s*=\s*[\"']([^\"']+)[\"']"
+)
+
+
+def _validate_media_subdir(value: str) -> None:
+    """Reject media output paths that can escape the conversion workspace."""
+    path = Path(value)
+    if path.drive or path.anchor or path.is_absolute() or ".." in path.parts:
+        raise ValueError(
+            f"media_subdir must stay within the output workspace: {value!r}"
+        )
+
+
+def _validate_media_filename(filename: str) -> None:
+    """Require one media basename so asset maps cannot redirect writes."""
+    path = Path(filename)
+    if (
+        not filename
+        or filename in {".", ".."}
+        or path.drive
+        or path.anchor
+        or path.name != filename
+        or "/" in filename
+        or "\\" in filename
+    ):
+        raise ValueError(f"Media filename must be a basename: {filename!r}")
+
+
+def _extract_theme_info(
+    theme: PartRef,
+    palette: ColorPalette,
+) -> tuple[dict[str, str], dict[str, str]]:
+    from .color_resolver import find_color_elem, resolve_color
+
+    colors: dict[str, str] = {}
+    fonts: dict[str, str] = {}
+
+    scheme = theme.xml.find(".//a:clrScheme", NS)
+    if scheme is not None:
+        for child in list(scheme):
+            if not isinstance(child.tag, str):
+                continue
+            name = child.tag.split("}", 1)[-1]
+            try:
+                color_elem = find_color_elem(child)
+                hex_, _ = resolve_color(color_elem, palette)
+            except ValueError as exc:
+                if palette.strict:
+                    raise
+                palette._diagnose(
+                    "theme-summary-color-omitted",
+                    str(exc),
+                    "omit only this malformed theme-summary color",
+                )
+                continue
+            if hex_:
+                colors[name] = hex_
+
+    font_scheme = theme.xml.find(".//a:fontScheme", NS)
+    if font_scheme is not None:
+        for slot in ("majorFont", "minorFont"):
+            fnt = font_scheme.find(f"a:{slot}", NS)
+            if fnt is None:
+                continue
+            role_prefix = "major" if slot == "majorFont" else "minor"
+            latin = fnt.find("a:latin", NS)
+            if latin is not None and latin.attrib.get("typeface"):
+                fonts[f"{role_prefix}Latin"] = latin.attrib["typeface"]
+            ea = fnt.find("a:ea", NS)
+            if ea is not None and ea.attrib.get("typeface"):
+                fonts[f"{role_prefix}EastAsia"] = ea.attrib["typeface"]
+            cs = fnt.find("a:cs", NS)
+            if cs is not None and cs.attrib.get("typeface"):
+                fonts[f"{role_prefix}ComplexScript"] = cs.attrib["typeface"]
+            for supplemental in fnt.findall("a:font", NS):
+                script = supplemental.attrib.get("script", "")
+                typeface = supplemental.attrib.get("typeface", "")
+                if script in _CJK_THEME_SCRIPTS and typeface:
+                    fonts[f"{role_prefix}Script{script}"] = typeface
+
+    return colors, fonts
+
+
+@dataclass
+class ConvertOptions:
+    """Convert behavior knobs.
+
+    media_subdir: where to write media files relative to output_dir. SVG image
+        href will use './<media_subdir>/<filename>'.
+    embed_images: when True, base64-encode images inline instead of writing
+        files. Default False (matches svg_to_pptx default of external images).
+    keep_hidden: include shapes marked hidden="1". Default False.
+    inheritance_mode: how to render master/layout shapes per slide SVG.
+        - "both" (default): emit both views — layered under svg/ for template
+          designers (master/layout/slide as separate files) and flat under
+          svg-flat/ for previewers (each slide self-contained). Costs roughly
+          1.3-1.5× converter time and ~1.6-2× disk vs. either single mode.
+        - "layered": skip inherited shapes inside the slide. The orchestrator
+          renders every master and layout to its own SVG, plus
+          svg/inheritance.json describing the reuse graph. Optimised for
+          template authors who need to see "what is shared vs. unique".
+        - "flat": inline the inherited shapes visible under the source
+          ``showMasterSp`` flags. Used by svg_to_pptx round-trip and any caller
+          that wants self-contained slides (preview pages, screenshot pipelines).
+    strict: stop on the first unsupported or malformed source construct.
+        Default False keeps usable content and records structured diagnostics.
+    """
+
+    media_subdir: str = "assets"
+    embed_images: bool = False
+    keep_hidden: bool = False
+    inheritance_mode: str = "both"
+    asset_name_map: dict[str, str] = field(default_factory=dict)
+    strict: bool = False
+
+
+@dataclass
+class PartArtifact:
+    """Result of converting a master or layout part to SVG (layered mode only)."""
+
+    role: str  # "master" | "layout"
+    part_path: str  # OOXML part path, e.g. "ppt/slideLayouts/slideLayout3.xml"
+    filename: str  # output svg filename, e.g. "layout_03_title.xml.svg"
+    svg: str
+    media_files: dict[str, bytes] = field(default_factory=dict)
+    parent_master_part_path: str | None = None
+    theme_part_path: str | None = None
+    show_master_shapes: bool = True
+
+
+@dataclass
+class SlideArtifact:
+    """Result of converting a single slide."""
+
+    index: int  # 1-based
+    svg: str
+    media_files: dict[str, bytes] = field(default_factory=dict)
+    layout_part_path: str | None = None
+    master_part_path: str | None = None
+    show_inherited_shapes: bool = True
+
+
+@dataclass
+class ConvertResult:
+    """Result of converting an entire .pptx.
+
+    ``slides`` holds the layered/primary view (or, in pure flat mode, the flat
+    view). ``flat_slides`` is populated only in ``"both"`` mode and contains
+    self-contained renderings of every slide; callers that don't care about
+    the flat view can ignore it.
+    """
+
+    slides: list[SlideArtifact] = field(default_factory=list)
+    canvas_px: tuple[float, float] = (1280.0, 720.0)
+    theme_colors: dict[str, str] = field(default_factory=dict)
+    theme_fonts: dict[str, str] = field(default_factory=dict)
+    layouts: list[PartArtifact] = field(default_factory=list)
+    masters: list[PartArtifact] = field(default_factory=list)
+    flat_slides: list[SlideArtifact] = field(default_factory=list)
+    master_themes: dict[str, dict[str, object]] = field(default_factory=dict)
+    diagnostics: list[ImportDiagnostic] = field(default_factory=list)
+    animation_config: dict[str, object] = field(
+        default_factory=lambda: {
+            "version": 1,
+            "defaults": {
+                "transition": {
+                    "effect": "none",
+                    "duration": 0.0,
+                },
+            },
+            "slides": {},
+        }
+    )
+    animation_media_files: dict[str, bytes] = field(default_factory=dict)
+    source_file: str = ""
+    strict: bool = False
+
+
+def _palette_diagnostic_sink(
+    result: ConvertResult,
+    *,
+    part_path: str,
+    slide_index: int | None = None,
+) -> Callable[[str, str, str], None]:
+    """Build a package-level diagnostic sink for palette initialization."""
+    def _record(code: str, message: str, fallback: str) -> None:
+        append_diagnostic(
+            result.diagnostics,
+            ImportDiagnostic(
+                code=code,
+                message=message,
+                fallback=fallback,
+                part_path=part_path,
+                slide_index=slide_index,
+            ),
+        )
+
+    return _record
+
+
+def _make_palette(
+    master: PartRef | None,
+    theme: PartRef | None,
+    options: ConvertOptions,
+    result: ConvertResult,
+    *,
+    part_path: str,
+    slide_index: int | None = None,
+) -> ColorPalette:
+    """Create one strict or tolerant palette with structured diagnostics."""
+    return ColorPalette(
+        master,
+        theme,
+        strict=options.strict,
+        diagnostic_sink=_palette_diagnostic_sink(
+            result,
+            part_path=part_path,
+            slide_index=slide_index,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry
+# ---------------------------------------------------------------------------
+
+def convert_pptx_to_svg(
+    pptx_path: Path,
+    output_dir: Path | None = None,
+    options: ConvertOptions | None = None,
+) -> ConvertResult:
+    """Convert a .pptx file to one SVG per slide.
+
+    Args:
+        pptx_path: Source .pptx file.
+        output_dir: When given, write svg/<slide_NN>.svg + media files there.
+            When None, files are not written; callers can read SlideArtifact.svg.
+        options: ConvertOptions; defaults to ConvertOptions().
+
+    Returns:
+        ConvertResult with per-slide SVG strings and resolved theme info.
+    """
+    options = options or ConvertOptions()
+    if options.inheritance_mode not in {"flat", "layered", "both"}:
+        raise ValueError(
+            f"inheritance_mode must be 'flat', 'layered', or 'both', "
+            f"got {options.inheritance_mode!r}"
+        )
+    if not options.embed_images:
+        _validate_media_subdir(options.media_subdir)
+    emit_layered = options.inheritance_mode in {"layered", "both"}
+    emit_flat = options.inheritance_mode in {"flat", "both"}
+    result = ConvertResult(
+        source_file=pptx_path.name,
+        strict=options.strict,
+    )
+
+    with OoxmlPackage(pptx_path) as pkg:
+        result.canvas_px = pkg.slide_size_px
+
+        # Default theme summary is kept for compatibility; conversion itself
+        # resolves palette/fonts per slide master.
+        first_slide = pkg.get_slide(1)
+        default_master = first_slide.master if first_slide else None
+        default_theme = pkg.resolve_theme(default_master)
+        palette = _make_palette(
+            default_master,
+            default_theme,
+            options,
+            result,
+            part_path=default_theme.path if default_theme is not None else "",
+        )
+        if default_theme is not None:
+            result.theme_colors, result.theme_fonts = _extract_theme_info(default_theme, palette)
+
+        for master in pkg.iter_all_masters():
+            theme = pkg.resolve_theme(master) or default_theme
+            pal = _make_palette(
+                master,
+                theme,
+                options,
+                result,
+                part_path=master.path,
+            )
+            colors, fonts = _extract_theme_info(theme, pal) if theme is not None else ({}, {})
+            result.master_themes[master.path] = {
+                "themePath": theme.path if theme is not None else None,
+                "colors": colors,
+                "fonts": fonts,
+            }
+
+        # Per-slide conversion. The primary view is layered when emitted
+        # (template designers care most about that one); the flat view is
+        # rendered alongside when needed.
+        primary_mode = "layered" if emit_layered else "flat"
+        for slide in pkg.iter_slides():
+            _read_back_slide_transition(
+                pkg,
+                slide,
+                result,
+                options,
+            )
+            slide_theme = pkg.resolve_theme(slide.master) or default_theme
+            slide_palette = _make_palette(
+                slide.master,
+                slide_theme,
+                options,
+                result,
+                part_path=slide.part.path,
+                slide_index=slide.index,
+            )
+            _colors, slide_fonts = _extract_theme_info(slide_theme, slide_palette) if slide_theme is not None else ({}, result.theme_fonts)
+            artifact = _convert_slide(
+                pkg,
+                slide,
+                slide_palette,
+                options,
+                result.diagnostics,
+                slide_fonts,
+                inheritance_mode=primary_mode,
+            )
+            result.slides.append(artifact)
+            _read_back_slide_animation(
+                pkg,
+                slide,
+                artifact,
+                result,
+                options,
+            )
+        if emit_layered and emit_flat:
+            for slide in pkg.iter_slides():
+                slide_theme = pkg.resolve_theme(slide.master) or default_theme
+                slide_palette = _make_palette(
+                    slide.master,
+                    slide_theme,
+                    options,
+                    result,
+                    part_path=slide.part.path,
+                    slide_index=slide.index,
+                )
+                _colors, slide_fonts = _extract_theme_info(slide_theme, slide_palette) if slide_theme is not None else ({}, result.theme_fonts)
+                artifact = _convert_slide(
+                    pkg,
+                    slide,
+                    slide_palette,
+                    options,
+                    result.diagnostics,
+                    slide_fonts,
+                    inheritance_mode="flat",
+                )
+                result.flat_slides.append(artifact)
+
+        # Layered mode: also render each master / layout once.
+        if emit_layered:
+            _convert_inheritance_parts(pkg, default_theme, options, result)
+
+    if output_dir is not None:
+        _write_artifacts(output_dir, result, options)
+
+    return result
+
+
+def _read_back_slide_transition(
+    pkg: OoxmlPackage,
+    slide: SlideRef,
+    result: ConvertResult,
+    options: ConvertOptions,
+) -> None:
+    """Recover one supported slide transition into the sidecar."""
+    try:
+        transition = import_slide_transition(
+            pkg,
+            slide,
+            media_subdir=options.media_subdir,
+        )
+    except TransitionImportError as exc:
+        message = f"Slide transition was not reconstructed: {exc}"
+        if options.strict:
+            raise ValueError(message) from exc
+        append_diagnostic(
+            result.diagnostics,
+            ImportDiagnostic(
+                code="transition-not-reconstructed",
+                message=message,
+                fallback=(
+                    "keep this transition in the source PPTX through direct "
+                    "native preservation"
+                ),
+                part_path=slide.part.path,
+                slide_index=slide.index,
+            ),
+        )
+    else:
+        if transition is not None:
+            slides = result.animation_config["slides"]
+            if not isinstance(slides, dict):
+                raise RuntimeError("internal animations.json slides must be an object")
+            slides[f"slide_{slide.index:02d}"] = {
+                "transition": transition.config,
+            }
+            for filename, payload in transition.media_files.items():
+                existing = result.animation_media_files.get(filename)
+                if existing is not None and existing != payload:
+                    raise RuntimeError(
+                        "Transition sound filename collision with different bytes: "
+                        f"{filename}"
+                    )
+                result.animation_media_files[filename] = payload
+
+
+
+def _read_back_slide_animation(
+    pkg: OoxmlPackage,
+    slide: SlideRef,
+    artifact: SlideArtifact,
+    result: ConvertResult,
+    options: ConvertOptions,
+) -> None:
+    """Recover one finite object-animation sequence into the sidecar."""
+    try:
+        animation = import_slide_animation(
+            pkg,
+            slide,
+            slide_svg=artifact.svg,
+        )
+    except AnimationImportError as exc:
+        message = f"Object animation timing was not reconstructed: {exc}"
+        if options.strict:
+            raise ValueError(message) from exc
+        append_diagnostic(
+            result.diagnostics,
+            ImportDiagnostic(
+                code="animation-not-reconstructed",
+                message=message,
+                fallback=(
+                    "keep this timing in the source PPTX through direct "
+                    "native preservation"
+                ),
+                part_path=slide.part.path,
+                slide_index=slide.index,
+            ),
+        )
+        return
+    if animation is None:
+        return
+
+    slides = result.animation_config["slides"]
+    if not isinstance(slides, dict):
+        raise RuntimeError("internal animations.json slides must be an object")
+    slide_config = slides.setdefault(f"slide_{slide.index:02d}", {})
+    if not isinstance(slide_config, dict):
+        raise RuntimeError("internal animations.json slide row must be an object")
+    slide_config["groups"] = animation.groups
+
+
+def _convert_slide(
+    pkg: OoxmlPackage,
+    slide: SlideRef,
+    palette: ColorPalette,
+    options: ConvertOptions,
+    diagnostics: list[ImportDiagnostic],
+    theme_fonts: dict[str, str] | None = None,
+    *,
+    inheritance_mode: str | None = None,
+) -> SlideArtifact:
+    """Convert a single slide via the full shape pipeline.
+
+    ``inheritance_mode`` overrides ``options.inheritance_mode`` so the
+    orchestrator can render the same slide twice (once layered, once flat)
+    when the user asked for ``"both"``. Pass ``"flat"`` or ``"layered"``;
+    ``None`` falls back to ``options.inheritance_mode`` (used by direct
+    callers that want a single mode).
+    """
+    mode = inheritance_mode or options.inheritance_mode
+    if mode == "both":
+        mode = "layered"  # primary view in both-mode
+    show_inherited_shapes = part_show_master_sp(slide.part)
+    svg, media = assemble_slide(
+        pkg, slide, palette,
+        theme_fonts=theme_fonts,
+        media_subdir=options.media_subdir,
+        embed_images=options.embed_images,
+        keep_hidden=options.keep_hidden,
+        inheritance_mode=mode,
+        asset_name_map=options.asset_name_map,
+        strict=options.strict,
+        diagnostics=diagnostics,
+    )
+    return SlideArtifact(
+        index=slide.index,
+        svg=svg,
+        media_files=media,
+        layout_part_path=slide.layout.path if slide.layout else None,
+        master_part_path=slide.master.path if slide.master else None,
+        show_inherited_shapes=show_inherited_shapes,
+    )
+
+
+def _convert_inheritance_parts(
+    pkg: OoxmlPackage,
+    default_theme: PartRef | None,
+    options: ConvertOptions,
+    result: ConvertResult,
+) -> None:
+    """Render every master and layout in the deck to its own SVG (layered mode).
+
+    We deliberately render *all* masters / layouts, not only the ones a slide
+    references. Multi-style template packages routinely ship more design
+    surfaces than the embedded sample slides exercise, and dropping unused
+    ones discards the bulk of the template's design intent.
+    """
+    # Collect unique parts in document order so output filenames are
+    # deterministic for a given .pptx.
+    seen_masters: dict[str, PartRef] = {}
+    for master in pkg.iter_all_masters():
+        if master.path not in seen_masters:
+            seen_masters[master.path] = master
+
+    layouts_with_parent: list[tuple[PartRef, PartRef]] = []
+    seen_layout_paths: set[str] = set()
+    for layout, parent_master in pkg.iter_all_layouts_with_parent():
+        if layout.path in seen_layout_paths:
+            continue
+        seen_layout_paths.add(layout.path)
+        layouts_with_parent.append((layout, parent_master))
+
+    for seq, part in enumerate(seen_masters.values(), start=1):
+        theme = pkg.resolve_theme(part) or default_theme
+        palette = _make_palette(
+            part,
+            theme,
+            options,
+            result,
+            part_path=part.path,
+        )
+        _colors, fonts = _extract_theme_info(theme, palette) if theme is not None else ({}, result.theme_fonts)
+        result.masters.append(_render_part(
+            pkg, part, palette, options, result.diagnostics, fonts,
+            role="master", seq=seq, theme_part=theme,
+        ))
+    for seq, (layout, parent_master) in enumerate(layouts_with_parent, start=1):
+        theme = pkg.resolve_theme(parent_master) or default_theme
+        palette = _make_palette(
+            parent_master,
+            theme,
+            options,
+            result,
+            part_path=layout.path,
+        )
+        _colors, fonts = _extract_theme_info(theme, palette) if theme is not None else ({}, result.theme_fonts)
+        result.layouts.append(_render_part(
+            pkg, layout, palette, options, result.diagnostics, fonts,
+            role="layout", seq=seq, parent_master=parent_master,
+            theme_part=theme,
+        ))
+
+
+def _render_part(
+    pkg: OoxmlPackage,
+    part: PartRef,
+    palette: ColorPalette,
+    options: ConvertOptions,
+    diagnostics: list[ImportDiagnostic],
+    theme_fonts: dict[str, str],
+    *,
+    role: str,
+    seq: int,
+    parent_master: PartRef | None = None,
+    theme_part: PartRef | None = None,
+) -> PartArtifact:
+    """Render a master/layout part, returning a PartArtifact with output filename."""
+    svg, media = assemble_part_solo(
+        pkg, part, palette,
+        role=role,
+        parent_master=parent_master,
+        theme_fonts=theme_fonts,
+        media_subdir=options.media_subdir,
+        embed_images=options.embed_images,
+        keep_hidden=options.keep_hidden,
+        asset_name_map=options.asset_name_map,
+        strict=options.strict,
+        diagnostics=diagnostics,
+    )
+    stem = PurePosixPath(part.path).stem  # e.g. "slideLayout3"
+    safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_") or role
+    filename = f"{role}_{seq:02d}_{safe_stem}.svg"
+    return PartArtifact(
+        role=role,
+        part_path=part.path,
+        filename=filename,
+        svg=svg,
+        media_files=media,
+        parent_master_part_path=parent_master.path if parent_master is not None else None,
+        theme_part_path=theme_part.path if theme_part is not None else None,
+        show_master_shapes=(
+            part_show_master_sp(part) if role == "layout" else True
+        ),
+    )
+
+
+def _path_lexists(path: Path) -> bool:
+    """Return whether a path or symlink exists without following the symlink."""
+    return path.exists() or path.is_symlink()
+
+
+def _managed_svg_paths(output_dir: Path) -> list[Path]:
+    """Return converter-owned SVG files without traversing user directories."""
+    managed: list[Path] = []
+    for dirname, filename_re in (
+        ("svg", _MANAGED_PRIMARY_SVG_RE),
+        ("svg-flat", _MANAGED_FLAT_SVG_RE),
+    ):
+        svg_dir = output_dir / dirname
+        if svg_dir.is_symlink():
+            managed.append(svg_dir)
+            continue
+        if not svg_dir.is_dir():
+            continue
+        managed.extend(
+            path
+            for path in svg_dir.iterdir()
+            if filename_re.fullmatch(path.name)
+            and (path.is_file() or path.is_symlink())
+        )
+        inheritance = svg_dir / "inheritance.json"
+        if dirname == "svg" and _path_lexists(inheritance):
+            managed.append(inheritance)
+    return managed
+
+
+def _managed_report_artifact_paths(output_dir: Path) -> set[Path]:
+    """Return optional artifacts owned by the previous conversion report."""
+    report_path = output_dir / "conversion-report.json"
+    if report_path.is_symlink() or not report_path.is_file():
+        return set()
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return set()
+    artifacts = report.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return set()
+    if artifacts.get("animationConfig") != "animations.json":
+        return set()
+
+    managed = {Path("animations.json")}
+    animation_media = artifacts.get("animationMedia")
+    if not isinstance(animation_media, list):
+        return managed
+    for value in animation_media:
+        if not isinstance(value, str):
+            continue
+        path = Path(value)
+        if (
+            path.drive
+            or path.anchor
+            or path.is_absolute()
+            or not path.parts
+            or ".." in path.parts
+            or not _MANAGED_TRANSITION_SOUND_RE.fullmatch(path.name)
+        ):
+            continue
+        managed.add(path)
+    return managed
+
+
+def _referenced_local_paths(
+    output_dir: Path,
+    svg_paths: list[Path],
+) -> set[Path]:
+    """Resolve local media referenced by converter-owned SVGs."""
+    referenced: set[Path] = set()
+    output_abs = output_dir.absolute()
+    for svg_path in svg_paths:
+        if svg_path.is_symlink() or not svg_path.is_file():
+            continue
+        try:
+            svg_text = svg_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        for raw_href in _SVG_HREF_RE.findall(svg_text):
+            href = unescape(raw_href)
+            parsed = urlsplit(href)
+            if parsed.scheme or parsed.netloc or not parsed.path:
+                continue
+            href_path = unquote(parsed.path)
+            if Path(href_path).is_absolute():
+                continue
+            target = Path(os.path.normpath(str(svg_path.parent / href_path)))
+            try:
+                relative = target.absolute().relative_to(output_abs)
+            except ValueError:
+                continue
+            if relative.parts:
+                referenced.add(relative)
+    return referenced
+
+
+def _validated_relative_paths(paths: set[str | Path]) -> set[Path]:
+    """Normalize caller-supplied managed paths and reject output escapes."""
+    normalized: set[Path] = set()
+    for value in paths:
+        path = Path(value)
+        if (
+            path.drive
+            or path.anchor
+            or path.is_absolute()
+            or not path.parts
+            or ".." in path.parts
+        ):
+            raise ValueError(f"Managed artifact path must stay relative: {value}")
+        normalized.add(path)
+    return normalized
+
+
+def _reject_symlink_ancestors(
+    root: Path,
+    relative_paths: set[Path],
+) -> None:
+    """Reject managed paths that would traverse a preserved user symlink."""
+    for relative in relative_paths:
+        current = root
+        for component in relative.parts[:-1]:
+            current /= component
+            if current.is_symlink():
+                raise RuntimeError(
+                    "Managed artifact path crosses an unmanaged symlink: "
+                    f"{relative}"
+                )
+
+
+def _remove_managed_paths(candidate_dir: Path, relative_paths: set[Path]) -> None:
+    """Remove only the previous converter roster from a candidate workspace."""
+    _reject_symlink_ancestors(candidate_dir, relative_paths)
+    parents: set[Path] = set()
+    for relative in sorted(
+        relative_paths,
+        key=lambda item: len(item.parts),
+        reverse=True,
+    ):
+        target = candidate_dir / relative
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            raise RuntimeError(
+                "Managed artifact path collides with a preserved directory: "
+                f"{relative}"
+            )
+        parent = target.parent
+        while parent != candidate_dir:
+            parents.add(parent)
+            parent = parent.parent
+
+    for parent in sorted(parents, key=lambda item: len(item.parts), reverse=True):
+        if parent.is_symlink() or not parent.is_dir():
+            continue
+        try:
+            parent.rmdir()
+        except OSError:
+            pass
+
+
+def _overlay_staged_tree(staged_dir: Path, candidate_dir: Path) -> None:
+    """Overlay generated artifacts without overwriting unmanaged user files."""
+    for source in sorted(staged_dir.rglob("*")):
+        relative = source.relative_to(staged_dir)
+        target = candidate_dir / relative
+        _reject_symlink_ancestors(candidate_dir, {relative})
+        if source.is_symlink():
+            raise RuntimeError(
+                f"Generated artifact must not be a symlink: {relative}"
+            )
+        if source.is_dir():
+            if (
+                target.is_symlink()
+                or (_path_lexists(target) and not target.is_dir())
+            ):
+                raise RuntimeError(
+                    f"Generated artifact collides with unmanaged path: {relative}"
+                )
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if _path_lexists(target):
+            if target.is_dir() or target.is_symlink():
+                raise RuntimeError(
+                    f"Generated artifact collides with unmanaged path: {relative}"
+                )
+            if target.read_bytes() != source.read_bytes():
+                raise RuntimeError(
+                    f"Generated artifact collides with unmanaged file: {relative}"
+                )
+        shutil.copy2(source, target)
+
+
+def publish_staged_workspace(
+    output_dir: Path,
+    staged_dir: Path,
+    *,
+    managed_root_files: set[str | Path] | None = None,
+    managed_relative_paths: set[str | Path] | None = None,
+) -> None:
+    """Atomically publish generated artifacts while preserving user files.
+
+    Converter-owned SVGs, their local media references, and the named managed
+    artifacts are replaced as one roster. Everything else already present in
+    the output directory is copied into the candidate unchanged.
+    """
+    output_dir = output_dir.absolute()
+    staged_dir = staged_dir.absolute()
+    if (
+        output_dir == staged_dir
+        or output_dir in staged_dir.parents
+        or staged_dir in output_dir.parents
+    ):
+        raise ValueError(
+            "Staged and output workspaces must not contain one another"
+        )
+    output_resolved = output_dir.resolve(strict=False)
+    try:
+        Path.cwd().resolve().relative_to(output_resolved)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError(
+            "Output workspace must not contain the current working directory"
+        )
+    if not staged_dir.is_dir():
+        raise ValueError(f"Staged workspace does not exist: {staged_dir}")
+    if (
+        output_dir.is_symlink()
+        or (_path_lexists(output_dir) and not output_dir.is_dir())
+    ):
+        raise RuntimeError(f"Output path must be a real directory: {output_dir}")
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    transaction_dir = Path(tempfile.mkdtemp(
+        prefix=f".{output_dir.name}.publish-",
+        dir=output_dir.parent,
+    ))
+    candidate_dir = transaction_dir / "candidate"
+    backup_dir = transaction_dir / "previous"
+    preserve_backup = False
+
+    try:
+        if output_dir.is_dir():
+            shutil.copytree(output_dir, candidate_dir, symlinks=True)
+        else:
+            candidate_dir.mkdir()
+
+        managed_svg = _managed_svg_paths(output_dir)
+        relative_paths = {
+            path.relative_to(output_dir)
+            for path in managed_svg
+        }
+        relative_paths.update(_referenced_local_paths(output_dir, managed_svg))
+        relative_paths.add(Path("conversion-report.json"))
+        relative_paths.update(_managed_report_artifact_paths(output_dir))
+        relative_paths.update(_validated_relative_paths(managed_root_files or set()))
+        relative_paths.update(_validated_relative_paths(managed_relative_paths or set()))
+        _remove_managed_paths(candidate_dir, relative_paths)
+        _overlay_staged_tree(staged_dir, candidate_dir)
+
+        if output_dir.is_dir():
+            try:
+                os.replace(output_dir, backup_dir)
+                os.replace(candidate_dir, output_dir)
+            except BaseException as publish_error:
+                try:
+                    if _path_lexists(backup_dir):
+                        if _path_lexists(output_dir):
+                            failed_output = transaction_dir / "failed-publish"
+                            os.replace(output_dir, failed_output)
+                        os.replace(backup_dir, output_dir)
+                except BaseException as restore_error:
+                    if (
+                        not _path_lexists(backup_dir)
+                        and _path_lexists(output_dir)
+                    ):
+                        raise publish_error
+                    preserve_backup = _path_lexists(backup_dir)
+                    raise RuntimeError(
+                        "Failed to publish the new workspace and restore the "
+                        "previous workspace; recovery directory: "
+                        f"{transaction_dir}"
+                    ) from restore_error
+                raise
+        else:
+            os.replace(candidate_dir, output_dir)
+    finally:
+        if not preserve_backup:
+            shutil.rmtree(transaction_dir, ignore_errors=True)
+
+
+def _write_artifact_tree(
+    output_dir: Path,
+    result: ConvertResult,
+    options: ConvertOptions,
+) -> None:
+    """Write a complete converter roster into an empty staging directory.
+
+    Layout:
+      - ``svg/``        primary view (layered when emitted, otherwise flat)
+      - ``svg-flat/``   self-contained per-slide renders (only in "both" mode)
+      - ``<media_subdir>/`` shared image assets, referenced by both views
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    svg_dir = output_dir / "svg"
+    svg_dir.mkdir(exist_ok=True)
+    media_dir = output_dir / options.media_subdir
+    media_written: dict[str, bytes] = {}
+
+    def _collect_media(media: dict[str, bytes]) -> None:
+        for filename, blob in media.items():
+            _validate_media_filename(filename)
+            if filename in media_written:
+                if media_written[filename] != blob:
+                    raise RuntimeError(
+                        f"Asset filename collision with different bytes: {filename}"
+                    )
+                continue
+            media_written[filename] = blob
+
+    # Layered mode: write masters and layouts first so they sort ahead of slides.
+    for art in result.masters:
+        (svg_dir / art.filename).write_text(art.svg, encoding="utf-8")
+        _collect_media(art.media_files)
+    for art in result.layouts:
+        (svg_dir / art.filename).write_text(art.svg, encoding="utf-8")
+        _collect_media(art.media_files)
+
+    # Slides (primary view).
+    for art in result.slides:
+        target = svg_dir / f"slide_{art.index:02d}.svg"
+        target.write_text(art.svg, encoding="utf-8")
+        _collect_media(art.media_files)
+    _collect_media(result.animation_media_files)
+
+    # Inheritance graph alongside the layered SVGs (only meaningful when we
+    # actually emitted a layered view).
+    if options.inheritance_mode in {"layered", "both"}:
+        _write_inheritance_json(svg_dir, result)
+
+    # Flat companion view (only when result.flat_slides is populated).
+    if result.flat_slides:
+        flat_dir = output_dir / "svg-flat"
+        flat_dir.mkdir(exist_ok=True)
+        for art in result.flat_slides:
+            target = flat_dir / f"slide_{art.index:02d}.svg"
+            target.write_text(art.svg, encoding="utf-8")
+            _collect_media(art.media_files)
+
+    _write_animation_config(output_dir, result)
+    _write_conversion_report(output_dir, result, options)
+    if media_written:
+        media_dir.mkdir(parents=True, exist_ok=True)
+    for filename, blob in media_written.items():
+        target = media_dir / filename
+        if _path_lexists(target):
+            if (
+                target.is_symlink()
+                or not target.is_file()
+                or target.read_bytes() != blob
+            ):
+                raise RuntimeError(
+                    f"Asset filename collision with different bytes: {filename}"
+                )
+            continue
+        target.write_bytes(blob)
+
+
+def _write_artifacts(
+    output_dir: Path,
+    result: ConvertResult,
+    options: ConvertOptions,
+) -> None:
+    """Stage a complete conversion, then atomically publish its exact roster."""
+    output_dir = output_dir.absolute()
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_root = Path(tempfile.mkdtemp(
+        prefix=f".{output_dir.name}.convert-",
+        dir=output_dir.parent,
+    ))
+    staged_dir = staging_root / "generated"
+    try:
+        _write_artifact_tree(staged_dir, result, options)
+        publish_staged_workspace(output_dir, staged_dir)
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+
+
+def _write_conversion_report(
+    output_dir: Path,
+    result: ConvertResult,
+    options: ConvertOptions,
+) -> None:
+    """Write the user-visible tolerant-import report."""
+    animation_media = [
+        (PurePosixPath(options.media_subdir) / filename).as_posix()
+        for filename in sorted(result.animation_media_files)
+    ]
+    report = {
+        "schemaVersion": 1,
+        "source": result.source_file,
+        "mode": "strict" if result.strict else "tolerant",
+        "summary": {
+            "slides": len(result.slides),
+            "warnings": len(result.diagnostics),
+        },
+        "artifacts": {
+            "animationConfig": "animations.json",
+            "animationMedia": animation_media,
+        },
+        "diagnostics": [item.to_dict() for item in result.diagnostics],
+    }
+    (output_dir / "conversion-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_animation_config(output_dir: Path, result: ConvertResult) -> None:
+    """Write the canonical transition/object-motion sidecar."""
+    errors = list(
+        dict.fromkeys(
+            validate_transition_config(result.animation_config)
+            + validate_animation_config_errors(result.animation_config)
+        )
+    )
+    if errors:
+        raise RuntimeError(
+            "Generated animations.json is invalid: " + "; ".join(errors)
+        )
+    (output_dir / "animations.json").write_text(
+        json.dumps(
+            result.animation_config,
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_inheritance_json(svg_dir: Path, result: ConvertResult) -> None:
+    """Record layered parentage plus source-owned shape-visibility booleans."""
+    layout_by_path = {art.part_path: art.filename for art in result.layouts}
+    master_by_path = {art.part_path: art.filename for art in result.masters}
+
+    inheritance = {
+        "masters": [
+            {
+                "file": art.filename,
+                "partPath": art.part_path,
+                "themePath": art.theme_part_path,
+            }
+            for art in result.masters
+        ],
+        "layouts": [
+            {
+                "file": art.filename,
+                "partPath": art.part_path,
+                "master": master_by_path.get(art.parent_master_part_path or ""),
+                "parentPartPath": art.parent_master_part_path,
+                "themePath": art.theme_part_path,
+                "showMasterShapes": art.show_master_shapes,
+            }
+            for art in result.layouts
+        ],
+        "slides": [
+            {
+                "file": f"slide_{slide.index:02d}.svg",
+                "index": slide.index,
+                "layout": layout_by_path.get(slide.layout_part_path or ""),
+                "master": master_by_path.get(slide.master_part_path or ""),
+                "showInheritedShapes": slide.show_inherited_shapes,
+            }
+            for slide in result.slides
+        ],
+    }
+    (svg_dir / "inheritance.json").write_text(
+        json.dumps(inheritance, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )

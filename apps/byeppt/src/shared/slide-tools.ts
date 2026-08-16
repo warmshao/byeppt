@@ -627,4 +627,23 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
     },
     mutating: true,
   },
+  {
+    name: 'import_pptx_slides',
+    description:
+      'Merge every slide of a source .pptx file into the current deck (one undo step). Primary use: the SVG escape hatch — after converting an authored SVG to pptx with the byeppt-pptx-py skill, merge the result here. Imported slides inherit the current deck layout/theme chain.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Absolute path of the source .pptx' },
+        mode: {
+          type: 'string',
+          enum: ['append', 'insert_at', 'replace_at'],
+          description: "'append' (default): add at the end; 'insert_at': insert starting at atIndex; 'replace_at': replace the single slide at atIndex with the source's first slide",
+        },
+        atIndex: { type: 'integer', description: '0-based target position (insert_at/replace_at)' },
+      },
+      required: ['path'],
+    },
+    mutating: true,
+  },
 ]

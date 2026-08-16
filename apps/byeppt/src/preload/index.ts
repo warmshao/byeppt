@@ -104,6 +104,13 @@ const api: SlidesApi = {
   openPptxPath: (path, fitWidthPx) => ipcRenderer.invoke('slides:open-path', path, fitWidthPx),
   consumePendingOpen: (fitWidthPx) => ipcRenderer.invoke('slides:consume-pending-open', fitWidthPx),
   newBlank: (fitWidthPx) => ipcRenderer.invoke('slides:new-blank', fitWidthPx),
+  importPptx: (op: {
+    path: string
+    fitWidthPx: number
+    mode?: 'append' | 'insert_at' | 'replace_at'
+    atIndex?: number
+    deckName?: string
+  }) => ipcRenderer.invoke('slides:import-pptx', op),
   editText: (op: EditTextOp) => ipcRenderer.invoke('slides:edit-text', op),
   setElementFont: (op: SetElementFontOp) => ipcRenderer.invoke('slides:set-element-font', op),
   setElementParagraphFormat: (op: SetElementParagraphFormatOp) =>

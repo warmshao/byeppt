@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: byeppt-pptx-py
+Version: 0.1.0
+Summary: ppt-master deterministic PPTX tooling (SVG->PPTX, quality gates) packaged for byeppt/vsurf
+Requires-Python: >=3.10
+Requires-Dist: python-pptx
+Requires-Dist: Pillow
+Requires-Dist: skia-pathops
+Requires-Dist: uharfbuzz
+Requires-Dist: numpy
+Requires-Dist: requests
+Requires-Dist: beautifulsoup4
+Requires-Dist: lxml

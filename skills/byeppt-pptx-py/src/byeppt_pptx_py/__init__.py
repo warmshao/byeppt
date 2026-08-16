@@ -5,7 +5,7 @@ subsystems. Each CLI inserts its own dir into sys.path, so they run in place.
 These helpers wrap the common ones as async functions (subprocess, current
 interpreter); the kernel also exposes this module as a callable skill:
 
-    await byeppt_pptx("svg_to_pptx", project="/path/to/project")
+    await byeppt_pptx_py("svg_to_pptx", project="/path/to/project")
 """
 from __future__ import annotations
 

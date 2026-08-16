@@ -1013,6 +1013,15 @@ export interface SlidesApi {
   consumePendingOpen: (fitWidthPx: number) => Promise<OpenResult | null>
   /** New blank presentation (single blank 16:9 page, untitled) */
   newBlank: (fitWidthPx: number) => Promise<OpenResult>
+  /** Import every slide of a source pptx into the open deck (agent SVG escape hatch).
+   *  mode 'append' (default) | 'insert_at' | 'replace_at'; one undo step. */
+  importPptx: (op: {
+    path: string
+    fitWidthPx: number
+    mode?: 'append' | 'insert_at' | 'replace_at'
+    atIndex?: number
+    deckName?: string
+  }) => Promise<(OpenResult & { imported?: number; firstIndex?: number }) | { error: string }>
   editText: (op: EditTextOp) => Promise<RenderSlide | null>
   /** Change font/size on selected elements wholesale (elements without text ignored; returns null if all ignored) */
   setElementFont: (op: SetElementFontOp) => Promise<RenderSlide | null>

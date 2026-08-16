@@ -1308,6 +1308,116 @@ export function registerSlidesIpc(): void {
   // machinery (mergeSlideFromPptx / promoteSlideBackground) stays for the future
   // import-pptx-slides tool.
 
+  // Import every slide of a source pptx file into the open deck (the SVG escape
+  // hatch lands here: byeppt_pptx_py converts SVG→pptx, the agent then merges).
+  // mode: 'append' (default) adds all source slides at the end; 'insert_at'
+  // inserts them starting at atIndex; 'replace_at' replaces the single slide
+  // at atIndex with the source's first slide. One undo step overall.
+  ipcMain.handle(
+    'slides:import-pptx',
+    async (
+      e,
+      op: {
+        path: string
+        fitWidthPx: number
+        mode?: 'append' | 'insert_at' | 'replace_at'
+        atIndex?: number
+        deckName?: string
+      },
+    ): Promise<(OpenResult & { imported?: number; firstIndex?: number }) | { error: string }> => {
+      const session = sessions.get(e.sender.id)
+      if (!session) return { error: tm('errNoDeckAppend') }
+      let sourceBytes: Uint8Array
+      try {
+        sourceBytes = new Uint8Array(await readFile(op.path))
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+      const mode = op.mode ?? 'append'
+      const opened = session.opened
+      const total = opened.deck.slides.length
+      if (mode !== 'append' && (op.atIndex == null || op.atIndex < 0 || op.atIndex > total)) {
+        return { error: tm('errIndexRange', { max: total }) }
+      }
+
+      pushHistory(session)
+      const rollback = () => {
+        const snap = session.undoStack.pop()
+        if (snap) restoreSnapshot(session, snap)
+      }
+      try {
+        const sourceOpened = await openPptx(sourceBytes)
+        const sourceCount = sourceOpened.deck.slides.length
+        if (sourceCount === 0) {
+          rollback()
+          return { error: tm('errMergeFailed') }
+        }
+        // mergeSlideFromPptx merges one single-slide source per call (as the old
+        // cloud-page pipeline did), so multi-page sources are split into
+        // per-slide pptx byte strings first.
+        const perSlide: Uint8Array[] = []
+        if (sourceCount === 1) {
+          perSlide.push(sourceBytes)
+        } else {
+          for (let i = 0; i < sourceCount; i++) {
+            const work = await openPptx(sourceBytes)
+            for (let j = sourceCount - 1; j >= 0; j--) {
+              if (j !== i) deleteSlide(work, j)
+            }
+            perSlide.push(await savePptx(work))
+          }
+        }
+        const insertAt = mode === 'append' ? total : (op.atIndex ?? total)
+        const firstIndex = insertAt
+        let imported = 0
+        for (let k = 0; k < perSlide.length; k++) {
+          const merged = await mergeSlideFromPptx(opened, perSlide[k]!)
+          if (!merged) {
+            rollback()
+            return { error: tm('errMergeFailed') }
+          }
+          promoteSlideBackground(merged, opened.deck.size)
+          const curTotal = opened.deck.slides.length
+          const targetPos = insertAt + k
+          if (targetPos < curTotal - 1 && !moveSlide(opened, curTotal - 1, targetPos)) {
+            rollback()
+            return { error: tm('errInsertFailed') }
+          }
+          imported++
+        }
+        if (mode === 'replace_at') {
+          // the old page sits right after the inserted block
+          if (!deleteSlide(opened, insertAt + imported)) {
+            rollback()
+            return { error: tm('errReplaceFailed') }
+          }
+        }
+        if (imported === 0) {
+          rollback()
+          return { error: tm('errMergeFailed') }
+        }
+        session.fitWidthPx = op.fitWidthPx
+        const bytes = await savePptx(opened)
+        await saveDraftAfterGenerate(e.sender, session, bytes, 'append', op.deckName)
+        if (session.path) {
+          session.opened = await openPptx(bytes)
+          session.metaDirty = false
+        }
+        return {
+          path: session.path,
+          slides: buildAllRenderSlides(session.opened, op.fitWidthPx),
+          size: { cx: session.opened.deck.size.cx, cy: session.opened.deck.size.cy },
+          defaultFont: deckDefaultFont(session.opened),
+          imported,
+          firstIndex,
+        }
+      } catch (err) {
+        rollback()
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+  )
+
   ipcMain.handle('slides:new-blank', async (e, fitWidthPx: number): Promise<OpenResult> => {
     const opened = await openPptx(await createBlankPptx())
     sessions.set(e.sender.id, { path: '', opened, fitWidthPx, undoStack: [], redoStack: [] })

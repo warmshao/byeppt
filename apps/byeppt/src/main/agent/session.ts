@@ -11,9 +11,37 @@
  * secret store). The non-secret "last selected model" lives in app-settings.
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
 import { buildSlideCustomTools } from './slide-tools-main'
+
+/** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
+const BYEPPT_PREAMBLE = [
+  'You are running inside byeppt, a desktop presentation app (a live PowerPoint editor).',
+  'The user sees the deck canvas updating in real time as your slide tools run.',
+  'Slide tools (get_deck_context, read_slide, execute_slide_script, add_*, set_element_*, generate_image, ask_clarification, import_pptx_slides, …) operate on the currently open deck — results appear on canvas immediately and are undoable by the user.',
+  'For any deck creation/beautify/heavy-edit task, follow the byeppt-deck skill (its methodology, stage gates, and design references are authoritative).',
+  'Never fabricate numbers as facts (the tools enforce dataSource); reply in the user’s language.',
+].join('\n')
+
+/** Locate the bundled skills dir (repo ./skills in dev, resources/skills when packaged). */
+function resolveSkillsDir(): string | null {
+  const candidates: string[] = []
+  if (process.resourcesPath) candidates.push(join(process.resourcesPath, 'skills'))
+  let dir = app.getAppPath()
+  for (let i = 0; i < 8; i++) {
+    candidates.push(join(dir, 'skills'))
+    const parent = join(dir, '..')
+    if (parent === dir) break
+    dir = parent
+  }
+  for (const c of candidates) {
+    if (existsSync(join(c, 'byeppt-deck', 'SKILL.md'))) return c
+  }
+  console.warn('[agent] skills dir not found; deck skill unavailable')
+  return null
+}
 
 type VsurfSdk = typeof import('@warmshao/vsurf')
 type AgentSession = import('@warmshao/vsurf').AgentSession
@@ -109,12 +137,27 @@ async function ensureSession(): Promise<AgentSession | null> {
       console.warn('[agent] no model with credentials configured yet')
       return null
     }
+    const skillsDir = resolveSkillsDir()
+    const resourceLoader = new s.DefaultResourceLoader({
+      cwd: agentDir(),
+      agentDir: agentDir(),
+      ...(skillsDir
+        ? {
+            additionalSkillPaths: [
+              join(skillsDir, 'byeppt-deck'),
+              join(skillsDir, 'byeppt-pptx-py'),
+            ],
+          }
+        : {}),
+      appendSystemPrompt: [BYEPPT_PREAMBLE],
+    })
     const { session: created } = await s.createAgentSession({
       agentDir: agentDir(),
       cwd: agentDir(),
       authStorage: stores.authStorage,
       modelRegistry: stores.modelRegistry,
       model,
+      resourceLoader,
       // Slide-editing tools: each forwards over the deck bridge into the active
       // slides renderer (see slide-tools-main.ts / deck-bridge.ts)
       customTools: await buildSlideCustomTools(s),

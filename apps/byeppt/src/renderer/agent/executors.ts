@@ -1014,6 +1014,28 @@ async function executeTool(
       }
     }
 
+    case 'import_pptx_slides': {
+      const path = String(call.input.path ?? '')
+      if (!path.toLowerCase().endsWith('.pptx'))
+        return fail(t('aiFailInsertImage'), 'path must point to a .pptx file')
+      const modeRaw = String(call.input.mode ?? 'append')
+      const mode =
+        modeRaw === 'insert_at' || modeRaw === 'replace_at' ? modeRaw : ('append' as const)
+      const r = await window.slidesApi.importPptx({
+        path,
+        fitWidthPx: access.fitWidthPx,
+        mode,
+        ...(call.input.atIndex !== undefined ? { atIndex: Number(call.input.atIndex) } : {}),
+      })
+      if ('error' in r) return fail(t('aiFailInsertImage'), r.error ?? 'import failed')
+      access.applyDeck(r.slides, r.firstIndex ?? r.slides.length - 1)
+      return {
+        output: `Imported ${r.imported ?? 0} slide(s) from the source pptx (starting at page ${(r.firstIndex ?? 0) + 1}); the deck now has ${r.slides.length} pages.`,
+        mutated: true,
+        summary: t('aiSumInsertImage', { n: (r.firstIndex ?? 0) + 1 }),
+      }
+    }
+
     case 'add_slide': {
       const src = Number(call.input.sourceIndex)
       if (!slides[src])
