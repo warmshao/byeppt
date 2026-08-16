@@ -104,7 +104,7 @@ beforeEach(() => {
 describe('initial state', () => {
   it('starts with only the non-closable, active Home tab', () => {
     expect(manager.list()).toEqual([
-      { id: 'home', kind: 'home', title: 'byeppt', closable: false, active: true },
+      { id: 'home', kind: 'home', title: 'Home', closable: false, active: true },
     ])
   })
 })
@@ -129,7 +129,7 @@ describe('opening tabs', () => {
 
   it('titles file-backed tabs with the file basename', () => {
     manager.openSlidesTab('/tmp/deck.pptx')
-    expect(manager.list().map((t) => t.title)).toEqual(['byeppt', 'deck.pptx'])
+    expect(manager.list().map((t) => t.title)).toEqual(['Home', 'deck.pptx'])
   })
 
   it('assigns unique, monotonic tab ids', () => {

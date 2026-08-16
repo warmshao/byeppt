@@ -124,6 +124,20 @@ function loadThumbsW(): number {
   return Number.isFinite(saved) && saved > 0 ? clampThumbsW(saved) : THUMBS_W_DEFAULT
 }
 
+/** Resizable AI chat dock: drag its right edge; width persisted, clamped to a sane range */
+const CHAT_W_KEY = 'byeppt-chat-width'
+const CHAT_W_DEFAULT = 340
+const CHAT_W_MIN = 260
+
+function clampChatW(w: number): number {
+  return Math.min(Math.max(w, CHAT_W_MIN), Math.min(720, Math.round(window.innerWidth * 0.6)))
+}
+
+function loadChatW(): number {
+  const saved = Number(localStorage.getItem(CHAT_W_KEY))
+  return Number.isFinite(saved) && saved > 0 ? clampChatW(saved) : CHAT_W_DEFAULT
+}
+
 /** Outline view: extract one page's text from the render tree (title = the text box with the largest font size, topmost). */
 function outlineOf(s: RenderSlide): { title: string; lines: string[] } {
   const texts: Array<{ y: number; fontSize: number; text: string }> = []
@@ -333,6 +347,45 @@ export function App() {
       return !v
     })
   }, [])
+  // ── AI chat dock width (drag the divider to resize; persisted) ────────────
+  const [chatW, setChatW] = useState(loadChatW)
+  const chatDockRef = useRef<HTMLDivElement | null>(null)
+  // Re-clamp when the window shrinks (max is 60% of the window)
+  useEffect(() => {
+    const onResize = () => setChatW((w) => clampChatW(w))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  /** Drag to resize: width state follows the pointer (rAF-throttled); persisted on release. */
+  const startChatResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const dock = chatDockRef.current
+    if (!dock) return
+    const left = dock.getBoundingClientRect().left
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    let w = chatW
+    let raf = 0
+    const onMove = (ev: PointerEvent) => {
+      w = clampChatW(ev.clientX - left)
+      if (!raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0
+          setChatW(w)
+        })
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (raf) cancelAnimationFrame(raf)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      setChatW(w)
+      localStorage.setItem(CHAT_W_KEY, String(Math.round(w)))
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
   const [_recent, setRecent] = useState<string[]>([])
   const consumePendingRef = useRef<ReturnType<typeof window.slidesApi.consumePendingOpen> | null>(
     null,
@@ -2471,6 +2524,8 @@ export function App() {
         layouts={layoutsResult?.layouts ?? null}
         layoutSize={layoutsResult?.size ?? null}
         formatOpen={showFormat}
+        chatOpen={showChat}
+        onToggleChat={toggleChat}
         onToggleFormat={() =>
           setShowFormat((v) => {
             if (!v) setShowAnimPane(false)
@@ -2647,20 +2702,15 @@ export function App() {
       />
 
       <div className="app-main">
-        {slide && viewMode !== 'reading' && viewMode !== 'sorter' && (
-          <div className={`chat-dock${showChat ? '' : ' collapsed'}`}>
-            {showChat ? (
-              <ChatPanel onCollapse={toggleChat} />
-            ) : (
-              <button
-                className="chat-rail"
-                onClick={toggleChat}
-                data-tip={t('chatExpand')}
-                aria-label={t('chatExpand')}
-              >
-                AI
-              </button>
-            )}
+        {slide && viewMode !== 'reading' && viewMode !== 'sorter' && showChat && (
+          <div className="chat-dock" ref={chatDockRef} style={{ width: chatW }}>
+            <ChatPanel filePath={path} />
+            <div
+              className="chat-resize"
+              onPointerDown={startChatResize}
+              role="separator"
+              aria-orientation="vertical"
+            />
           </div>
         )}
         <div className="app-content">

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#E8452F"/>
+      <stop offset="1" stop-color="#D2331D"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.28" cy="0.14" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#6B1508" flood-opacity="0.38"/>
+    </filter>
+    <filter id="planeShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#6B1508" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#tile)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#sheen)"/>
+
+  <!-- the slide it took off from -->
+  <g transform="rotate(-10 424 636)" filter="url(#cardShadow)">
+    <rect x="144" y="478" width="560" height="315" rx="48" fill="#FFFFFF"/>
+    <rect x="214" y="556" width="200" height="32" rx="16" fill="#D63A1E"/>
+    <rect x="214" y="624" width="330" height="23" rx="11.5" fill="#D63A1E" opacity="0.42"/>
+    <rect x="214" y="678" width="272" height="23" rx="11.5" fill="#D63A1E" opacity="0.28"/>
+  </g>
+
+  <!-- curved flight trail -->
+  <g fill="#FFFFFF">
+    <rect x="616" y="430" width="54" height="21" rx="10.5" transform="rotate(-62 643 440)" opacity="0.35"/>
+    <rect x="686" y="364" width="46" height="18" rx="9" transform="rotate(-48 709 373)" opacity="0.55"/>
+    <rect x="746" y="302" width="38" height="15" rx="7.5" transform="rotate(-34 765 309)" opacity="0.75"/>
+  </g>
+
+  <!-- paper plane flying away: bye! -->
+  <g transform="translate(836 238) rotate(-40) scale(1.22)" filter="url(#planeShadow)">
+    <polygon points="130,0 -90,-78 -38,0 -90,78" fill="#FFFFFF"/>
+    <polygon points="130,0 -38,0 -90,78" fill="#F3CFC6"/>
+    <line x1="130" y1="0" x2="-38" y2="0" stroke="#D63A1E" stroke-width="7" stroke-linecap="round" opacity="0.55"/>
+  </g>
+</svg>

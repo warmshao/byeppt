@@ -3740,6 +3740,68 @@ export function registerProjectIpc(): void {
       return { projectId: args.projectId, chatId: args.newChatId ?? args.tempChatId }
     },
   )
+
+  /**
+   * AI panel attachments: copy picked/pasted files into the deck's own
+   * materials folder (<userData>/projects/<pid>/attachments/<chatId>/), so each
+   * open deck's materials stay separate and follow the chat on rebind/move.
+   * The agent reads them by absolute path (the path list is appended to the prompt).
+   */
+  ipcMain.handle(
+    'agent:save-attachments',
+    (
+      _event,
+      args: {
+        filePath: string | null
+        tempChatId?: string
+        files: Array<{ name: string; mime?: string; base64: string }>
+      },
+    ) => {
+      try {
+        const store = getSlidesProjectStore()
+        store.ensureDefaultProject()
+        const { projectId, chatId } = args.filePath
+          ? store.resolveChatForFile(args.filePath)
+          : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
+        const dir = store.attachmentsDir(projectId, chatId)
+        mkdirSync(dir, { recursive: true })
+        const saved: Array<{
+          name: string
+          path: string
+          ext: string
+          sizeBytes: number
+          mime?: string
+        }> = []
+        for (const f of args.files ?? []) {
+          if (!f?.name || typeof f.base64 !== 'string') continue
+          // sanitize + dedupe the file name inside the chat's folder
+          const clean = f.name.replace(/[\\/:*?"<>|]/g, '_').slice(-120) || 'file'
+          let target = join(dir, clean)
+          let n = 1
+          while (existsSync(target)) {
+            const dot = clean.lastIndexOf('.')
+            const stem = dot > 0 ? clean.slice(0, dot) : clean
+            const ext = dot > 0 ? clean.slice(dot) : ''
+            target = join(dir, `${stem}-${n++}${ext}`)
+          }
+          const buf = Buffer.from(f.base64, 'base64')
+          writeFileSync(target, buf)
+          const name = target.slice(dir.length + 1)
+          const dot = name.lastIndexOf('.')
+          saved.push({
+            name,
+            path: target,
+            ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '',
+            sizeBytes: buf.byteLength,
+            ...(f.mime ? { mime: f.mime } : {}),
+          })
+        }
+        return { ok: true, projectId, chatId, attachments: saved }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+  )
 }
 
 export function createSlidesWindow(openPath?: string | null): BrowserWindow {
@@ -3747,6 +3809,11 @@ export function createSlidesWindow(openPath?: string | null): BrowserWindow {
     width: 1280,
     height: 840,
     title: 'byeppt',
+    // dev-mode window/taskbar icon (packaged builds get it from the exe /
+    // electron-builder's build/icon.*); macOS uses the dock icon instead
+    ...(process.platform !== 'darwin' && !app.isPackaged
+      ? { icon: join(__dirname, '../../build/icon.png') }
+      : {}),
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const }
       : {

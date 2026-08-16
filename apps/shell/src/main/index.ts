@@ -181,7 +181,12 @@ function createShellWindow(): void {
     height: 900,
     minWidth: 980,
     minHeight: 600,
-    title: 'byeppt',
+    title: 'ByePPT',
+    // dev-mode window/taskbar icon (packaged builds get it from the exe /
+    // electron-builder's build/icon.*); macOS uses the dock icon instead
+    ...(process.platform !== 'darwin' && !app.isPackaged
+      ? { icon: join(__dirname, '../../build/icon.png') }
+      : {}),
     // vibrancy: the slides editor punches translucent regions (e.g. the
     // thumbnail pane) through to the desktop
     ...(process.platform === 'darwin'
@@ -369,6 +374,17 @@ function registerHomeIpc(): void {
     if (typeof path === 'string') openDocumentPath(path)
   })
 
+  // About-pane links: https only, always in the system browser
+  ipcMain.handle(HOME_CHANNELS.openExternal, (_event, url: unknown) => {
+    if (typeof url !== 'string') return
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'https:') void shell.openExternal(parsed.toString())
+    } catch {
+      /* not a URL — ignore */
+    }
+  })
+
   ipcMain.handle(HOME_CHANNELS.browse, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? shellWindow
     if (!win) return
@@ -478,15 +494,6 @@ function registerHomeIpc(): void {
     installDockMenu()
     installBackToHomeItems()
     for (const wc of webContents.getAllWebContents()) wc.send('app:language-changed', lang)
-  })
-
-  ipcMain.handle(
-    HOME_CHANNELS.onboardingSeen,
-    (): boolean => readAppSettings(APP_SETTINGS_PATH()).onboardingSeen === true,
-  )
-
-  ipcMain.handle(HOME_CHANNELS.setOnboardingSeen, () => {
-    writeAppSetting(APP_SETTINGS_PATH(), 'onboardingSeen', true)
   })
 
   ipcMain.handle(HOME_CHANNELS.getTheme, (): UiTheme => currentTheme())
@@ -602,6 +609,14 @@ function broadcastChromePressed(): void {
 
 function registerTabsIpc(): void {
   ipcMain.on(TABS_CHANNELS.chromePressed, broadcastChromePressed)
+  // AI panel "模型设置" link (invoked from a slides tab): jump to the Home tab
+  // and tell the home renderer to open the settings modal on the providers pane
+  ipcMain.handle('shell:open-agent-settings', () => {
+    if (!tabManager || !shellWindow) return { ok: false }
+    tabManager.openHomeTab()
+    shellWindow.webContents.send('home:open-agent-settings')
+    return { ok: true }
+  })
   ipcMain.handle(TABS_CHANNELS.list, () => tabManager?.list() ?? [])
   ipcMain.handle(TABS_CHANNELS.activate, (_event, id: string) => tabManager?.activateTab(id))
   ipcMain.handle(TABS_CHANNELS.close, (_event, id: string) => tabManager?.closeTab(id))
@@ -614,7 +629,8 @@ function registerTabsIpc(): void {
     if (!tabManager || !shellWindow) return
     const menu = Menu.buildFromTemplate(
       tabManager.list().map((tab) => ({
-        label: tab.title,
+        // the home tab's stored title is a placeholder — always show the localized name
+        label: tab.kind === 'home' ? tm('menuHome') : tab.title,
         type: 'checkbox' as const,
         checked: tab.active,
         icon: menuIcons()[TAB_MENU_ICON[tab.kind]],

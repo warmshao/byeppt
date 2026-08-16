@@ -8,12 +8,45 @@ import { dirname, join } from 'node:path'
 
 export type UiThemePref = 'light' | 'dark' | 'system'
 
+/** Per-provider configuration edited in Settings → 模型供应商 */
+export interface AgentProviderConfig {
+  /** model picked for this provider (empty/absent = registry default) */
+  model?: string
+  /** base URL override (also mirrored into the vsurf models.json) */
+  baseUrl?: string
+  /** last connectivity test passed — gates the 启用 (enable) button */
+  verified?: boolean
+}
+
+/** Per-backend image-generation preferences (non-secret; keys live in AuthStorage) */
+export interface ImageGenProviderConfig {
+  /** custom API base URL; empty/undefined → the provider's official endpoint */
+  baseUrl?: string
+  /** model id; empty/undefined → the provider's default model */
+  model?: string
+  /** last connectivity test passed — gates the 启用 (enable) button */
+  verified?: boolean
+  /** last connectivity test failed — shows the broken-link state on 测试 */
+  testFailed?: boolean
+}
+
 export interface AppSettings {
   theme?: UiThemePref
   /** Last explicitly selected agent model */
   agentModel?: { provider: string; id: string }
+  /** per-provider model/baseUrl/test state, keyed by provider id */
+  agentProviders?: Record<string, AgentProviderConfig>
   /** Image generation defaults */
-  imageGen?: { provider?: 'gemini' | 'openai'; model?: string }
+  imageGen?: {
+    /** active backend */
+    provider?: 'gemini' | 'openai'
+    /** legacy single-model field (pre per-provider config); still honored as a fallback */
+    model?: string
+    providers?: {
+      gemini?: ImageGenProviderConfig
+      openai?: ImageGenProviderConfig
+    }
+  }
 }
 
 function settingsPath(): string {

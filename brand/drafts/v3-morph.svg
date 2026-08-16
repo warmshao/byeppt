@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#E8452F"/>
+      <stop offset="1" stop-color="#D2331D"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.28" cy="0.14" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#6B1508" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#tile)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#sheen)"/>
+
+  <!-- "..." the prompt -->
+  <g fill="#FFFFFF">
+    <circle cx="238" cy="580" r="34" opacity="0.45"/>
+    <circle cx="330" cy="580" r="34" opacity="0.65"/>
+    <circle cx="422" cy="580" r="34" opacity="0.85"/>
+  </g>
+
+  <!-- morph arrow -->
+  <path d="M 496 556 l 56 24 -56 24 z" fill="#FFFFFF" opacity="0.9"/>
+
+  <!-- the generated deck -->
+  <g filter="url(#cardShadow)">
+    <rect x="596" y="452" width="300" height="225" rx="36" fill="#FFFFFF" opacity="0.5" transform="translate(26 -22)"/>
+    <rect x="596" y="452" width="300" height="225" rx="36" fill="#FFFFFF"/>
+    <rect x="640" y="504" width="140" height="24" rx="12" fill="#D63A1E"/>
+    <rect x="640" y="556" width="212" height="18" rx="9" fill="#D63A1E" opacity="0.42"/>
+    <rect x="640" y="598" width="176" height="18" rx="9" fill="#D63A1E" opacity="0.28"/>
+  </g>
+</svg>

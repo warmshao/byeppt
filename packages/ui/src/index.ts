@@ -3,7 +3,7 @@ export { installScreenTips } from './screentip'
 export { AiTypingIndicator } from './AiTypingIndicator'
 export { IconSend, IconStop, type IconProps } from './icons'
 export { Markdown } from './Markdown'
-export { ProviderIcon, providerIconSlug } from './ProviderIcon'
+export { ProviderIcon } from './ProviderIcon'
 export { isSymbolFontFamily } from './symbol-fonts'
 export {
   WORDART_PRESETS,

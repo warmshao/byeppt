@@ -22,6 +22,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -101,6 +102,15 @@ export class ProjectStore {
 
   private chatPath(projectId: string, chatId: string): string {
     return join(this.chatsDir(projectId), `${chatId}.jsonl`)
+  }
+
+  /**
+   * Per-chat attachment (materials) directory: files the user pastes/picks in
+   * the AI panel are copied here, so every deck's materials stay in their own
+   * folder inside the owning project. Follows the chat on rebind/move.
+   */
+  attachmentsDir(projectId: string, chatId: string): string {
+    return join(this.projectDir(projectId), 'attachments', chatId)
   }
 
   // ── seq counters (in-memory cache, initialized from JSONL line count on first read) ──
@@ -436,6 +446,33 @@ export class ProjectStore {
     const next = mergedMaxSeq ?? curSeq
     if (next !== undefined) {
       this.seqCounters.set(this.seqKey(toProjectId, toId), next)
+    }
+
+    // Attachments follow the chat: rename the per-chat materials dir, merging
+    // file-by-file (never overwriting) when the target already has one
+    const srcAttach = this.attachmentsDir(fromProjectId, fromId)
+    const dstAttach = this.attachmentsDir(toProjectId, toId)
+    try {
+      if (existsSync(srcAttach)) {
+        if (!existsSync(dstAttach)) {
+          ensureDir(dirname(dstAttach))
+          renameSync(srcAttach, dstAttach)
+        } else {
+          for (const f of readdirSync(srcAttach)) {
+            let target = join(dstAttach, f)
+            let n = 1
+            while (existsSync(target)) target = join(dstAttach, `${n++}-${f}`)
+            renameSync(join(srcAttach, f), target)
+          }
+          try {
+            rmdirSync(srcAttach)
+          } catch {
+            /* non-empty leftovers are fine */
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[project-store] attachments move failed:', err)
     }
   }
 

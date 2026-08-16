@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import logoLockup from './assets/byeppt-logo.svg'
+import logoMark from './assets/byeppt-mark.svg'
 import iconPptx from './assets/file-pptx.svg'
 import type {
   AgentSettingsApi,
@@ -409,9 +409,27 @@ function ProjectPanel({ projects, selectedId, onSelect, onRefresh }: ProjectPane
 function SettingsEntry() {
   const { t } = useI18n()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // a slides tab's AI panel "model settings" link deep-links here (providers pane)
+  const [initialSection, setInitialSection] = useState<'providers' | undefined>(undefined)
+  useEffect(
+    () =>
+      window.aiOffice.onOpenAgentSettings(() => {
+        setInitialSection('providers')
+        setSettingsOpen(true)
+      }),
+    [],
+  )
   return (
     <div className="account-entry">
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          initialSection={initialSection}
+          onClose={() => {
+            setSettingsOpen(false)
+            setInitialSection(undefined)
+          }}
+        />
+      )}
       <button
         className="account-btn"
         onClick={() => setSettingsOpen(true)}
@@ -859,10 +877,7 @@ export function Home() {
         <button className="quick-card" onClick={handleNewSlide}>
           <FileBadge ext="pptx" size={30} />
           <span className="quick-text">
-            <span className="quick-title-row">
-              <span className="quick-title">{t('quickAiPpt')}</span>
-              <span className="ai-chip">AI</span>
-            </span>
+            <span className="quick-title">{t('quickAiPpt')}</span>
             <span className="quick-sub">{t('quickAiPptSub')}</span>
           </span>
         </button>
@@ -1356,7 +1371,8 @@ export function Home() {
     <div className="home">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <img className="logo-lockup" src={logoLockup} alt="byeppt" />
+          <img className="logo-mark" src={logoMark} alt="" aria-hidden="true" />
+          <span className="logo-word">ByePPT</span>
         </div>
 
         <nav className="sidebar-nav">

@@ -12,9 +12,6 @@
   --timeline-user-text: #5a6170;
   /* lift for the active segment in gray-track tab pills */
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 8%);
-
-  /* byeppt-logo.svg is accent-colored; no theme inversion */
-  --logo-invert: 0;
 }
 
 /* ── Dark mode overrides ─────────────────────────────────── */
@@ -29,7 +26,6 @@
   --timeline-user-bg: #2a2a3a;
   --timeline-user-text: #b0b0c0;
   --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
-  --logo-invert: 0;
 }
 
 /* System dark: no data-theme or data-theme="system" — follow OS preference */
@@ -43,7 +39,6 @@
     --timeline-user-bg: #2a2a3a;
     --timeline-user-text: #b0b0c0;
     --shadow-pill: 0 1px 2px rgb(0 0 0 / 40%);
-    --logo-invert: 0;
   }
 }
 
@@ -112,11 +107,19 @@ body.vib .home {
   margin-bottom: 20px;
 }
 
-.logo-lockup {
+.logo-mark {
   display: block;
-  height: 28px;
-  width: auto;
-  filter: invert(var(--logo-invert));
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+/* wordmark text follows the chrome theme (dark in light mode, white in dark) */
+.logo-word {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--text);
 }
 
 .sidebar-nav {
@@ -430,16 +433,6 @@ body.vib .home {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-muted);
-}
-
-.ai-chip {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--badge-bg);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
 }
 
 @media (max-width: 1100px) {

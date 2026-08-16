@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Home } from './Home'
-import { Onboarding } from './Onboarding'
 import { TabBar } from './TabBar'
 
-interface AppFrameProps {
-  /** resolved before first paint (main.tsx) so home never flashes under the overlay */
-  initialOnboardingSeen: boolean
-}
-
-export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
+export function AppFrame() {
   const [homeActive, setHomeActive] = useState(true)
-  const [showOnboarding, setShowOnboarding] = useState(!initialOnboardingSeen)
 
   useEffect(() => {
     const applyTabs = (tabs: Awaited<ReturnType<typeof window.aiOfficeTabs.list>>) => {
@@ -21,11 +14,6 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
     return window.aiOfficeTabs.onChanged(applyTabs)
   }, [])
 
-  const finishOnboarding = () => {
-    setShowOnboarding(false)
-    void window.aiOffice.setOnboardingSeen().catch(() => {})
-  }
-
   return (
     <div className="app-frame">
       <TabBar />
@@ -34,9 +22,6 @@ export function AppFrame({ initialOnboardingSeen }: AppFrameProps) {
       <div className="app-frame-content" style={{ visibility: homeActive ? 'visible' : 'hidden' }}>
         <Home />
       </div>
-      {/* editor WebContentsViews paint above ALL shell DOM, so the overlay only
-       * renders while the home tab is active — it comes back when home does */}
-      {showOnboarding && homeActive && <Onboarding onDone={finishOnboarding} />}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 {
   "name": "@byeppt/app",
-  "productName": "byeppt",
+  "productName": "ByePPT",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
@@ -45,7 +45,7 @@
   "author": "byeppt",
   "build": {
     "appId": "com.byeppt.app",
-    "productName": "byeppt",
+    "productName": "ByePPT",
     "electronVersion": "43.3.0",
     "directories": {
       "output": "release"

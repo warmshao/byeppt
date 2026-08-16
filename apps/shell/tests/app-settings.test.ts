@@ -6,7 +6,7 @@ import { readAppSettings, writeAppSetting } from '../src/main/app-settings'
 
 /**
  * userData/app-settings.json helpers (src/main/app-settings.ts): a flat JSON
- * object shared by the language preference and the first-run onboarding flag.
+ * object shared by cross-module app preferences (language, theme, …).
  */
 
 let dir: string

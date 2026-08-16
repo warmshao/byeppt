@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 /**
  * Helpers for userData/app-settings.json — a flat JSON object holding
- * cross-module app preferences (UI language, first-run onboarding flag).
+ * cross-module app preferences (UI language, theme, save location).
  * Editor modules read the same file, so the shape must stay a plain object.
  */
 

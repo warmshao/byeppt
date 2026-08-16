@@ -66,6 +66,8 @@ export interface HomeApi {
   toggleStar(path: string): Promise<void>
   /** open an existing file, routing by extension */
   openPath(path: string): Promise<void>
+  /** open an http(s) URL in the system browser (About links, GitHub) */
+  openExternal(url: string): Promise<void>
   /** file picker accepting every supported extension, then routes */
   browse(): Promise<void>
   /** open a slides tab at its start screen (open-a-pptx) */
@@ -88,10 +90,6 @@ export interface HomeApi {
   setLanguage(lang: UiLanguage): Promise<void>
   /** app version (from package.json / electron app.getVersion) */
   getAppVersion(): Promise<string>
-  /** whether the first-run onboarding has been completed or skipped (persisted in userData/app-settings.json) */
-  onboardingSeen(): Promise<boolean>
-  /** mark the first-run onboarding as done so it never shows again */
-  setOnboardingSeen(): Promise<void>
   /** current UI theme preference (persisted in userData/app-settings.json) */
   getTheme(): Promise<UiTheme>
   /** switch + persist the UI theme; broadcasts 'app:theme-changed' to all web contents */
@@ -102,6 +100,8 @@ export interface HomeApi {
   pickDefaultSaveDir(): Promise<string | null>
   /** theme switched anywhere (broadcast from the main process) */
   onThemeChanged(handler: (theme: UiTheme) => void): () => void
+  /** a slides tab asked to open the agent model settings (AI panel link) */
+  onOpenAgentSettings(handler: () => void): () => void
 }
 
 export interface RenameResult {
@@ -156,6 +156,7 @@ export const HOME_CHANNELS = {
   statPaths: 'home:stat-paths',
   toggleStar: 'home:toggle-star',
   openPath: 'home:open-path',
+  openExternal: 'home:open-external',
   browse: 'home:browse',
   newSlide: 'home:new-slide',
   removeRecent: 'home:remove-recent',
@@ -167,8 +168,6 @@ export const HOME_CHANNELS = {
   getLanguage: 'home:get-language',
   setLanguage: 'home:set-language',
   getAppVersion: 'home:get-app-version',
-  onboardingSeen: 'home:onboarding-seen',
-  setOnboardingSeen: 'home:set-onboarding-seen',
   getTheme: 'home:get-theme',
   setTheme: 'home:set-theme',
   getDefaultSaveDir: 'home:get-default-save-dir',
@@ -193,6 +192,19 @@ export interface AgentProviderRow {
   hasKey: boolean
   /** where the current credential came from: stored | environment | ... */
   source?: string
+  /** how the provider authenticates: subscription OAuth (browser login), AWS
+   *  credentials (bedrock), or a plain API key */
+  auth: 'oauth' | 'aws' | 'api_key'
+  /** model picked for this provider in Settings ('' = registry default) */
+  model: string
+  /** effective base URL (user override or catalog default) */
+  baseUrl: string
+  /** the user's own base URL override ('' = catalog default) — the edit field's initial value */
+  baseUrlOverride: string
+  /** last connectivity test passed — gates the 启用 button */
+  verified: boolean
+  /** the agent currently runs on a model from this provider */
+  active: boolean
 }
 
 export interface AgentModelRow {
@@ -201,30 +213,86 @@ export interface AgentModelRow {
   name: string
 }
 
+/** events pushed by the main process during an OAuth login flow */
+export type AgentOAuthEvent = {
+  provider: string
+} & (
+  | { type: 'auth'; url: string; instructions?: string }
+  | { type: 'progress'; message: string }
+  | {
+      type: 'ask'
+      reqId: string
+      kind: 'text' | 'select'
+      message: string
+      placeholder?: string
+      allowEmpty?: boolean
+      manual?: boolean
+      options?: Array<{ id: string; label: string }>
+    }
+)
+
 export interface ImageGenProviderRow {
   id: 'gemini' | 'openai'
   label: string
   defaultModel: string
+  /** preset model choices for the edit form */
+  models: string[]
+  defaultBaseUrl: string
+  /** configured base URL override ('' = official endpoint) */
+  baseUrl: string
+  /** effective model (configured or default) */
+  model: string
+  hasKey: boolean
+  /** last connectivity test passed — gates the 启用 button */
+  verified: boolean
+  /** last connectivity test failed — shows the broken-link state on 测试 */
+  testFailed: boolean
+  /** the backend the agent's image tool currently uses */
+  active: boolean
 }
 
 /** AI settings bridge: LLM provider keys (vsurf AuthStorage) + image-gen prefs. */
 export interface AgentSettingsApi {
   listProviders(): Promise<AgentProviderRow[]>
+  /** Every catalog model a provider offers (from the agent SDK's model registry;
+   *  no credentials required) — powers the edit dialog's model picker */
+  listProviderModels(provider: string): Promise<Array<{ id: string; name: string }>>
+  /** Persist the edit dialog's model pick + base URL override */
+  saveProviderConfig(
+    provider: string,
+    cfg: { model?: string; baseUrl?: string },
+  ): Promise<{ ok: boolean; error?: string }>
+  /** 启用: switch the agent to this provider's configured model (verified only) */
+  enableProvider(provider: string): Promise<{ ok: boolean; error?: string }>
   setProviderKey(provider: string, key: string): Promise<{ ok: boolean; error?: string }>
   clearProviderKey(provider: string): Promise<{ ok: boolean }>
   /** Minimal live ping against the provider with the stored key */
   testProviderKey(provider: string): Promise<{ ok: boolean; error?: string }>
+  /** Start the subscription OAuth login (Claude Pro/Max, ChatGPT Codex, Copilot).
+   *  Progress arrives via onOAuthEvent; text/select prompts must be answered
+   *  with respondOAuth(reqId, …). */
+  loginOAuth(provider: string): Promise<{ ok: boolean; error?: string }>
+  respondOAuth(reqId: string, value: string | null): Promise<{ ok: boolean }>
+  cancelOAuth(): Promise<{ ok: boolean }>
+  onOAuthEvent(handler: (event: AgentOAuthEvent) => void): () => void
   getModel(): Promise<AgentModelRow | null>
   /** Models with configured credentials (selectable as the agent's model) */
   listModels(): Promise<AgentModelRow[]>
   setModel(sel: { provider: string; id: string }): Promise<{ ok: boolean; error?: string }>
-  imageGenStatus(): Promise<{
-    providers: ImageGenProviderRow[]
-    keys: Record<string, boolean>
-  }>
-  getImageGenSettings(): Promise<{ provider?: 'gemini' | 'openai'; model?: string }>
-  setImageGenSettings(s: {
-    provider?: 'gemini' | 'openai'
-    model?: string
-  }): Promise<{ ok: boolean }>
+  imageGenStatus(): Promise<{ providers: ImageGenProviderRow[] }>
+  /** 启用: mark one backend as the agent's image tool provider */
+  setImageGenActive(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
+  /** Per-backend base URL / model overrides (empty string clears) */
+  setImageGenConfig(
+    provider: 'gemini' | 'openai',
+    cfg: { baseUrl?: string; model?: string },
+  ): Promise<{ ok: boolean; error?: string }>
+  /** Image-gen keys are stored separately from the LLM provider keys */
+  setImageGenKey(
+    provider: 'gemini' | 'openai',
+    key: string,
+  ): Promise<{ ok: boolean; error?: string }>
+  clearImageGenKey(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
+  /** Authenticated ping against the backend with its current config */
+  testImageGen(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
 }

@@ -268,7 +268,7 @@ export function TabBar() {
               {/* highlight plate behind the content — hover capsule / active white body */}
               <span className="tab-plate" aria-hidden="true" />
               <span className="tab-icon">{KIND_ICON[tab.kind]}</span>
-              <span className="tab-title">{tab.title}</span>
+              <span className="tab-title">{tab.kind === 'home' ? t('tabHome') : tab.title}</span>
               {tab.closable && (
                 <button
                   className="tab-close"

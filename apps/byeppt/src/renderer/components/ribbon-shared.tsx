@@ -318,6 +318,9 @@ export interface Props {
   layoutSize: GetLayoutsResult['size'] | null
   formatOpen: boolean
   onToggleFormat: () => void
+  /** AI chat panel visibility + toggle (the ribbon's leftmost big button) */
+  chatOpen: boolean
+  onToggleChat: () => void
   hasSelection: boolean
   /** Whether the selection contains text-capable elements (text boxes/shapes/tables): font group availability outside editing (pictures/charts etc. grayed) */
   hasTextSelection: boolean
@@ -543,6 +546,7 @@ export interface RibbonTabCtx extends Pick<
   | 'brushMode'
   | 'canDistribute'
   | 'canPaste'
+  | 'chatOpen'
   | 'curBulletChar'
   | 'curAlign'
   | 'curFontFamily'
@@ -598,6 +602,7 @@ export interface RibbonTabCtx extends Pick<
   | 'onTextColor'
   | 'onTextToggle'
   | 'onToggleFormat'
+  | 'onToggleChat'
   | 'onToggleScreenRecord'
   | 'recording'
   | 'slideCount'

@@ -1,16 +1,47 @@
 /**
  * Image generation service (Phase 4): thin multi-provider layer.
- * Gemini "banana" series (generateContent image modality) and OpenAI gpt-image
- * series (Images API). Plain fetch, no SDKs. Keys come from the vsurf
- * AuthStorage (google / openai credentials) — the single secret store.
+ * Gemini ("banana" series, generateContent image modality) and OpenAI
+ * (gpt-image series, Images API). Plain fetch, no SDKs.
+ *
+ * Each backend is configured independently in Settings → 图片生成: its own API
+ * key (vsurf AuthStorage under `imagegen-<id>`, NOT shared with the LLM
+ * provider keys), an optional base-URL override (empty = official endpoint),
+ * and a model pick. Non-secret prefs live in userData/app-settings.json.
  */
 import { app } from 'electron'
 import { join } from 'node:path'
 import { readAppSettings } from '../app-settings'
 import { generateGeminiImage } from './gemini'
 import { generateOpenAIImage } from './openai'
+import { imageGenApiKey } from './keys'
 
 export type ImageGenProvider = 'gemini' | 'openai'
+
+export interface ImageGenProviderInfo {
+  id: ImageGenProvider
+  label: string
+  defaultModel: string
+  /** preset model choices for the settings picker (custom ids stay possible) */
+  models: string[]
+  defaultBaseUrl: string
+}
+
+export const IMAGE_GEN_PROVIDERS: Record<ImageGenProvider, ImageGenProviderInfo> = {
+  gemini: {
+    id: 'gemini',
+    label: 'Google Gemini',
+    defaultModel: 'gemini-2.5-flash-image',
+    models: ['gemini-2.5-flash-image', 'gemini-3-pro-image'],
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com',
+  },
+  openai: {
+    id: 'openai',
+    label: 'OpenAI',
+    defaultModel: 'gpt-image-1',
+    models: ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-2'],
+    defaultBaseUrl: 'https://api.openai.com',
+  },
+}
 
 export interface ImageGenRequest {
   provider?: ImageGenProvider
@@ -33,27 +64,51 @@ export interface ImageGenResult {
   error?: string
 }
 
-export const IMAGE_GEN_DEFAULTS: Record<ImageGenProvider, { model: string; label: string }> = {
-  gemini: { model: 'gemini-2.5-flash-image', label: 'Gemini (banana)' },
-  openai: { model: 'gpt-image-1', label: 'OpenAI gpt-image' },
+/**
+ * Which backend the agent's image tool currently uses, or null when the user
+ * hasn't explicitly enabled one yet (nothing is active by default).
+ */
+export function activeImageGenProvider(): ImageGenProvider | null {
+  const p = readAppSettings().imageGen?.provider
+  return p === 'gemini' || p === 'openai' ? p : null
 }
 
-/** vsurf provider id holding the key for each image provider */
-export const IMAGE_GEN_KEY_PROVIDER: Record<ImageGenProvider, string> = {
-  gemini: 'google',
-  openai: 'openai',
+/**
+ * Effective config for one backend: explicit per-provider settings win, then
+ * the legacy flat `imageGen.model` (only for the provider it was saved with),
+ * then the catalog defaults. `baseUrl` stays undefined when unconfigured so
+ * the provider module can fall back to its env var / official endpoint.
+ */
+export function resolveImageGenConfig(provider: ImageGenProvider): {
+  model: string
+  baseUrl?: string
+} {
+  const saved = readAppSettings().imageGen
+  const info = IMAGE_GEN_PROVIDERS[provider]
+  const cfg = saved?.providers?.[provider]
+  const legacyModel = saved?.provider === provider ? saved?.model : undefined
+  return {
+    model: cfg?.model || legacyModel || info.defaultModel,
+    baseUrl: cfg?.baseUrl?.trim() || undefined,
+  }
 }
 
 export async function generateImage(req: ImageGenRequest): Promise<ImageGenResult> {
-  const saved = readAppSettings().imageGen
-  const provider: ImageGenProvider =
-    req.provider ?? (saved?.provider === 'openai' ? 'openai' : 'gemini')
-  const model = req.model || saved?.model || IMAGE_GEN_DEFAULTS[provider].model
+  const provider = req.provider ?? activeImageGenProvider()
+  if (!provider) {
+    return {
+      ok: false,
+      error:
+        'no-active-provider: no image backend enabled — the user can enable one in Settings → Image generation',
+    }
+  }
+  const cfg = resolveImageGenConfig(provider)
+  const model = req.model || cfg.model
   try {
     const bytes =
       provider === 'gemini'
-        ? await generateGeminiImage({ ...req, model })
-        : await generateOpenAIImage({ ...req, model })
+        ? await generateGeminiImage({ ...req, model, baseUrl: cfg.baseUrl })
+        : await generateOpenAIImage({ ...req, model, baseUrl: cfg.baseUrl })
     const dir = join(app.getPath('userData'), 'generated-images')
     const { mkdir, writeFile } = await import('node:fs/promises')
     await mkdir(dir, { recursive: true })
@@ -67,5 +122,35 @@ export async function generateImage(req: ImageGenRequest): Promise<ImageGenResul
       model,
       error: err instanceof Error ? err.message : String(err),
     }
+  }
+}
+
+/**
+ * Connectivity check for the settings UI: authenticated read of the configured
+ * model's metadata (no image generated, no tokens spent beyond the ping).
+ */
+export async function testImageGenConnection(
+  provider: ImageGenProvider,
+): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = await imageGenApiKey(provider)
+  if (!apiKey) return { ok: false, error: 'no-api-key' }
+  const cfg = resolveImageGenConfig(provider)
+  try {
+    if (provider === 'gemini') {
+      const base = (cfg.baseUrl || process.env.GEMINI_BASE_URL || IMAGE_GEN_PROVIDERS.gemini.defaultBaseUrl).replace(/\/$/, '')
+      const resp = await fetch(`${base}/v1beta/models/${encodeURIComponent(cfg.model)}`, {
+        headers: { 'x-goog-api-key': apiKey },
+      })
+      if (!resp.ok) throw new Error(`gemini ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
+    } else {
+      const base = (cfg.baseUrl || process.env.OPENAI_BASE_URL || IMAGE_GEN_PROVIDERS.openai.defaultBaseUrl).replace(/\/$/, '')
+      const resp = await fetch(`${base}/v1/models/${encodeURIComponent(cfg.model)}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+      if (!resp.ok) throw new Error(`openai ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
+    }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

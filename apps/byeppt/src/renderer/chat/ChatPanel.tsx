@@ -1,12 +1,19 @@
 /**
  * Chat panel — renders the vsurf AgentSession event stream forwarded by the
- * main process ('agent:event'). Phase-2 additions: the ask_clarification survey
- * card (agent tool → clarification store → card → resolve → tool result) and
- * the per-run history snapshot flow (agent_start begins a history batch,
- * agent_end collapses it into one rollback point).
+ * main process ('agent:event'). Visual language follows VSCode Claude Code:
+ * user bubbles, markdown assistant text, collapsible thinking blocks and
+ * tool-call cards (status icon + summary + IN/OUT), and a composer with
+ * attachment chips, paste/drop file support and an in-box send arrow.
+ *
+ * Attachments are copied into the deck's own materials folder
+ * (<userData>/projects/<pid>/attachments/<chatId>/) by the main process and
+ * handed to the agent as absolute paths appended to the prompt.
+ *
+ * The ask_clarification survey card docks in the composer slot; the per-run
+ * history snapshot flow collapses each run's deck edits into one rollback point.
  */
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { AgentEventPayload, AgentStatus } from '../../shared/ipc'
+import type { AgentAttachment, AgentEventPayload, AgentStatus } from '../../shared/ipc'
 import { useI18n } from '../i18n/locale'
 import type { ClarifyQuestion } from '../agent/deck-access'
 import { getDeckAccess } from '../agent/deck-access'
@@ -15,14 +22,30 @@ import {
   settleClarification,
   subscribeClarification,
 } from '../agent/clarification-store'
+import { renderMarkdown } from './markdown'
+
+// ── Row model ───────────────────────────────────────────────────────────────
+
+interface EchoAttachment {
+  name: string
+  ext: string
+  mime?: string
+  previewUrl?: string
+}
 
 interface ChatRow {
   id: string
-  kind: 'user' | 'assistant' | 'tool' | 'error' | 'notice'
+  kind: 'user' | 'assistant' | 'tool' | 'error' | 'notice' | 'nomodel'
   text: string
+  /** assistant rows: extracted thinking blocks (rendered as a collapsible) */
+  thinking?: string
   toolName?: string
+  toolArgs?: string
+  toolSummary?: string
+  toolResult?: string
   isError?: boolean
   streaming?: boolean
+  attachments?: EchoAttachment[]
 }
 
 let rowSeq = 0
@@ -31,17 +54,219 @@ const nextId = () => `r${++rowSeq}`
 interface AgentContentBlock {
   type: string
   text?: string
+  thinking?: string
 }
 
-function messageText(message: unknown): string {
+/** assistant message → visible text + thinking blocks (kept separate for rendering) */
+function messageParts(message: unknown): { text: string; thinking: string } {
   const content = (message as { content?: unknown })?.content
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return (content as AgentContentBlock[])
-    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text!)
-    .join('')
+  if (typeof content === 'string') return { text: content, thinking: '' }
+  if (!Array.isArray(content)) return { text: '', thinking: '' }
+  const blocks = content as AgentContentBlock[]
+  return {
+    text: blocks
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text!)
+      .join(''),
+    thinking: blocks
+      .filter((b) => b && b.type === 'thinking' && typeof b.thinking === 'string')
+      .map((b) => b.thinking!)
+      .join('\n'),
+  }
 }
+
+/** tool_execution_end result → displayable text (text blocks, [image] markers, JSON fallback) */
+function toolResultText(result: unknown): string {
+  if (result == null) return ''
+  if (typeof result === 'string') return result
+  const content = (result as { content?: unknown }).content
+  if (Array.isArray(content)) {
+    return (content as AgentContentBlock[])
+      .map((b) =>
+        b?.type === 'text' ? (b.text ?? '') : b?.type === 'image' ? '[image]' : JSON.stringify(b),
+      )
+      .filter(Boolean)
+      .join('\n')
+  }
+  const output = (result as { output?: unknown }).output
+  if (typeof output === 'string') return output
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
+}
+
+const DISPLAY_CAP = 6000
+const cap = (s: string) => (s.length > DISPLAY_CAP ? `${s.slice(0, DISPLAY_CAP)}\n…` : s)
+
+/** one-line args summary for the collapsed tool card header */
+function toolArgsSummary(args: unknown): string {
+  if (!args || typeof args !== 'object') return ''
+  const parts: string[] = []
+  for (const [key, v] of Object.entries(args as Record<string, unknown>)) {
+    if (typeof v === 'string') {
+      const oneLine = v.replace(/\s+/g, ' ').trim()
+      if (oneLine) parts.push(`${key}=${oneLine.length > 60 ? `${oneLine.slice(0, 60)}…` : oneLine}`)
+    } else if (typeof v === 'number' || typeof v === 'boolean') {
+      parts.push(`${key}=${v}`)
+    }
+    if (parts.join('  ').length > 100) break
+  }
+  return parts.join('  ')
+}
+
+function prettyArgs(args: unknown): string {
+  if (args == null) return ''
+  try {
+    return cap(JSON.stringify(args, null, 2))
+  } catch {
+    return String(args)
+  }
+}
+
+// ── Composer attachments ────────────────────────────────────────────────────
+
+interface PendingFile {
+  id: string
+  name: string
+  mime: string
+  size: number
+  base64: string
+  previewUrl?: string
+}
+
+let fileSeq = 0
+const nextFileId = () => `f${++fileSeq}`
+
+const IMAGE_RE = /^image\//i
+
+function extOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function readFile(file: File): Promise<PendingFile> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error)
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? '')
+      const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+      resolve({
+        id: nextFileId(),
+        name: file.name || `pasted-${Date.now()}.png`,
+        mime: file.type || 'application/octet-stream',
+        size: file.size,
+        base64,
+        ...(IMAGE_RE.test(file.type) ? { previewUrl: dataUrl } : {}),
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+/** file chip: image thumbnail or an extension badge */
+function FileChip({
+  name,
+  ext,
+  previewUrl,
+  size,
+  onRemove,
+}: {
+  name: string
+  ext: string
+  previewUrl?: string
+  size?: number
+  onRemove?: () => void
+}) {
+  return (
+    <span className="chat-chip" data-tip={size != null ? `${name} (${fmtSize(size)})` : name}>
+      {previewUrl ? (
+        <img className="chat-chip-thumb" src={previewUrl} alt="" />
+      ) : (
+        <span className={`chat-chip-badge ext-${ext || 'file'}`}>
+          {(ext || 'file').slice(0, 4).toUpperCase()}
+        </span>
+      )}
+      <span className="chat-chip-name">{name}</span>
+      {onRemove && (
+        <button className="chat-chip-x" onClick={onRemove} aria-label="×">
+          ×
+        </button>
+      )}
+    </span>
+  )
+}
+
+// ── Tool card ───────────────────────────────────────────────────────────────
+
+function ToolCard({ row }: { row: ChatRow }) {
+  // runs expanded, collapses on completion (Claude Code style)
+  const [open, setOpen] = useState(true)
+  const doneRef = useRef(false)
+  useEffect(() => {
+    if (!row.streaming && !doneRef.current) {
+      doneRef.current = true
+      setOpen(false)
+    }
+  }, [row.streaming])
+  return (
+    <div className={`tool-card${row.isError ? ' is-error' : ''}${row.streaming ? ' is-live' : ''}`}>
+      <button className="tool-card-head" onClick={() => setOpen((v) => !v)}>
+        <span className={`tool-card-chev${open ? ' open' : ''}`} aria-hidden>
+          ›
+        </span>
+        <span className="tool-card-name">{row.toolName}</span>
+        {row.toolSummary && <span className="tool-card-summary">{row.toolSummary}</span>}
+        <span className={`tool-card-state${row.isError ? ' err' : ''}`} aria-hidden>
+          {row.streaming ? <span className="tool-spinner" /> : row.isError ? '✗' : '✓'}
+        </span>
+      </button>
+      {open && (
+        <div className="tool-card-body">
+          {row.toolArgs && (
+            <pre className="tool-card-block">
+              <code>{row.toolArgs}</code>
+            </pre>
+          )}
+          {!row.streaming && row.toolResult && (
+            <pre className={`tool-card-block out${row.isError ? ' err' : ''}`}>
+              <code>{row.toolResult}</code>
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Thinking block ──────────────────────────────────────────────────────────
+
+function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={`think-block${streaming ? ' is-live' : ''}`}>
+      <button className="think-head" onClick={() => setOpen((v) => !v)}>
+        <span className={`tool-card-chev${open ? ' open' : ''}`} aria-hidden>
+          ›
+        </span>
+        {t('chatThinking')}
+        {streaming && <span className="tool-spinner" aria-hidden />}
+      </button>
+      {open && <div className="think-body">{text}</div>}
+    </div>
+  )
+}
+
+// ── Clarification survey card (unchanged behavior) ──────────────────────────
 
 /** Survey card: options clickable per question (single/multi), with "decide for me" and "Other (fill in)". */
 function ClarifyCard({
@@ -226,15 +451,24 @@ function ClarifyCard({
   )
 }
 
-export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
+// ── The panel ───────────────────────────────────────────────────────────────
+
+export function ChatPanel({ filePath }: { filePath: string | null }) {
   const { t } = useI18n()
   const [rows, setRows] = useState<ChatRow[]>([])
   const [draft, setDraft] = useState('')
+  const [pending, setPending] = useState<PendingFile[]>([])
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const pickerRef = useRef<HTMLInputElement | null>(null)
   /** id of the assistant row currently streaming */
   const activeAssistantRef = useRef<string | null>(null)
   const activeToolsRef = useRef(new Map<string, string>()) // toolCallId → rowId
+  /** attachments of the in-flight prompt, echoed onto its user row when message_start arrives */
+  const echoRef = useRef<EchoAttachment[]>([])
+  /** stable chat id for an unsaved deck (materials folder until the file hits disk) */
+  const tempChatIdRef = useRef(`unsaved-${Date.now()}`)
   /** A run-level history batch is open (begin at agent_start, collapse at agent_end) */
   const historyBatchActiveRef = useRef(false)
   /** Rollback point id for the last run that edited the deck (drives the rollback button) */
@@ -278,7 +512,14 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
           case 'message_start': {
             const msg = evt.message as { role?: string }
             if (msg?.role === 'user') {
-              next.push({ id: nextId(), kind: 'user', text: messageText(evt.message) })
+              const echo = echoRef.current
+              echoRef.current = []
+              next.push({
+                id: nextId(),
+                kind: 'user',
+                text: messageParts(evt.message).text,
+                ...(echo.length ? { attachments: echo } : {}),
+              })
             } else if (msg?.role === 'assistant') {
               const id = nextId()
               activeAssistantRef.current = id
@@ -289,24 +530,35 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
           case 'message_update': {
             const id = activeAssistantRef.current
             if (id) {
-              const text = messageText(evt.message)
-              mutate(id, (r) => ({ ...r, text }))
+              const { text, thinking } = messageParts(evt.message)
+              mutate(id, (r) => ({ ...r, text, ...(thinking ? { thinking } : {}) }))
             }
             break
           }
           case 'message_end': {
             const id = activeAssistantRef.current
-            if (id) mutate(id, (r) => ({ ...r, streaming: false, text: messageText(evt.message) || r.text }))
+            if (id) {
+              const { text, thinking } = messageParts(evt.message)
+              mutate(id, (r) => ({
+                ...r,
+                streaming: false,
+                text: text || r.text,
+                ...(thinking ? { thinking } : {}),
+              }))
+            }
             activeAssistantRef.current = null
             break
           }
           case 'tool_execution_start': {
             const id = nextId()
             activeToolsRef.current.set(String(evt.toolCallId), id)
+            const toolName = String(evt.toolName ?? '')
             next.push({
               id,
               kind: 'tool',
-              toolName: String(evt.toolName ?? ''),
+              toolName,
+              toolArgs: prettyArgs(evt.args),
+              toolSummary: toolArgsSummary(evt.args),
               text: '',
               streaming: true,
             })
@@ -314,7 +566,15 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
           }
           case 'tool_execution_end': {
             const id = activeToolsRef.current.get(String(evt.toolCallId))
-            if (id) mutate(id, (r) => ({ ...r, streaming: false, isError: evt.isError === true }))
+            if (id) {
+              const out = toolResultText(evt.result)
+              mutate(id, (r) => ({
+                ...r,
+                streaming: false,
+                isError: evt.isError === true,
+                toolResult: cap(out),
+              }))
+            }
             activeToolsRef.current.delete(String(evt.toolCallId))
             break
           }
@@ -350,25 +610,74 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
-  }, [rows])
+  }, [rows, pending.length])
+
+  // auto-grow the composer textarea (capped)
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [draft])
+
+  const addFiles = useCallback(async (files: Iterable<File>) => {
+    const reads: Promise<PendingFile>[] = []
+    for (const f of files) reads.push(readFile(f))
+    try {
+      const loaded = await Promise.all(reads)
+      setPending((prev) => [...prev, ...loaded])
+    } catch {
+      /* unreadable clipboard item — ignore */
+    }
+  }, [])
 
   const send = useCallback(async () => {
     const text = draft.trim()
-    if (!text) return
+    const files = pending
+    if (!text && files.length === 0) return
     setDraft('')
-    const res = await window.agentApi.prompt(text)
+    setPending([])
+    let promptText = text
+    if (files.length > 0) {
+      const res = await window.agentApi.saveAttachments({
+        filePath,
+        tempChatId: tempChatIdRef.current,
+        files: files.map((f) => ({ name: f.name, mime: f.mime, base64: f.base64 })),
+      })
+      if (!res.ok) {
+        setRows((prev) => [
+          ...prev,
+          { id: nextId(), kind: 'error', text: res.error ?? 'attachment-save-failed' },
+        ])
+        return
+      }
+      const saved = res.attachments ?? []
+      if (saved.length > 0) {
+        const list = saved.map((a) => `- ${a.name}: ${a.path}`).join('\n')
+        promptText = `${promptText}\n\nThe user attached these files for this turn (saved locally; read them by path as needed):\n${list}`
+      }
+      echoRef.current = saved.map((a: AgentAttachment) => {
+        const orig = files.find((f) => f.name === a.name)
+        return {
+          name: a.name,
+          ext: a.ext,
+          ...(a.mime ? { mime: a.mime } : {}),
+          ...(orig?.previewUrl ? { previewUrl: orig.previewUrl } : {}),
+        }
+      })
+    }
+    const res = await window.agentApi.prompt(promptText)
     if (!res.ok) {
+      echoRef.current = []
       setRows((prev) => [
         ...prev,
-        {
-          id: nextId(),
-          kind: 'error',
-          text: res.error === 'no-model' ? t('chatNoModel') : (res.error ?? 'error'),
-        },
+        res.error === 'no-model'
+          ? { id: nextId(), kind: 'nomodel', text: '' }
+          : { id: nextId(), kind: 'error', text: res.error ?? 'error' },
       ])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft])
+  }, [draft, pending, filePath])
 
   const abort = useCallback(() => {
     // A pending survey card would otherwise wait forever on a dead run
@@ -379,64 +688,66 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
   }, [])
 
   const streaming = status?.streaming ?? false
+  const canSend = !!(draft.trim() || pending.length)
 
   return (
     <div className="chat-panel">
-      <div className="chat-header">
-        <span className="chat-title">{t('chatTitle')}</span>
-        {status?.model && (
-          <span className="chat-model" title={`${status.model.provider}/${status.model.id}`}>
-            {status.model.name}
-          </span>
-        )}
-        {snapshotId != null && (
-          <button
-            type="button"
-            className="ai-rollback-btn"
-            disabled={streaming}
-            onClick={() => void rollback(snapshotId)}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M5.91026 4L2.5 7.14791L5.91026 10.8205" />
-              <path d="M3.96154 7.41028H15.1636C18.5169 7.41028 21.3646 10.1484 21.4953 13.5C21.6334 17.0416 18.707 20.0769 15.1636 20.0769H6.88384" />
-            </svg>
-            {t('aiRollback')}
-          </button>
-        )}
-        {onCollapse && (
-          <button className="chat-collapse" onClick={onCollapse} aria-label={t('chatCollapse')}>
-            ›
-          </button>
-        )}
-      </div>
       <div className="chat-list" ref={listRef}>
         {status && !status.ready && (
-          <div className="chat-row chat-error">{t('chatNoModel')}</div>
-        )}
-        {rows.map((row) => (
-          <div key={row.id} className={`chat-row chat-${row.kind}${row.isError ? ' is-error' : ''}`}>
-            {row.kind === 'tool' ? (
-              <>
-                <span className="chat-tool-name">{row.toolName}</span>
-                <span className="chat-tool-state">
-                  {row.streaming ? '…' : row.isError ? '✗' : '✓'}
-                </span>
-              </>
-            ) : (
-              row.text
-            )}
+          <div className="chat-row chat-nomodel">
+            {t('chatNoModelPre')}
+            <button className="chat-link" onClick={() => void window.agentApi.openModelSettings()}>
+              {t('chatNoModelLink')}
+            </button>
+            {t('chatNoModelPost')}
           </div>
-        ))}
+        )}
+        {rows.map((row) => {
+          if (row.kind === 'nomodel') {
+            return (
+              <div key={row.id} className="chat-row chat-nomodel">
+                {t('chatNoModelPre')}
+                <button
+                  className="chat-link"
+                  onClick={() => void window.agentApi.openModelSettings()}
+                >
+                  {t('chatNoModelLink')}
+                </button>
+                {t('chatNoModelPost')}
+              </div>
+            )
+          }
+          if (row.kind === 'tool') return <ToolCard key={row.id} row={row} />
+          if (row.kind === 'assistant') {
+            return (
+              <div key={row.id} className="chat-row chat-assistant">
+                {row.thinking && <ThinkingBlock text={row.thinking} streaming={row.streaming} />}
+                {row.text ? (
+                  <div className="md">{renderMarkdown(row.text)}</div>
+                ) : (
+                  row.streaming && !row.thinking && <span className="tool-spinner" aria-hidden />
+                )}
+              </div>
+            )
+          }
+          return (
+            <div key={row.id} className={`chat-row chat-${row.kind}${row.isError ? ' is-error' : ''}`}>
+              {row.attachments && row.attachments.length > 0 && (
+                <span className="chat-chips in-bubble">
+                  {row.attachments.map((a, i) => (
+                    <FileChip
+                      key={`${a.name}-${i}`}
+                      name={a.name}
+                      ext={a.ext}
+                      {...(a.previewUrl ? { previewUrl: a.previewUrl } : {})}
+                    />
+                  ))}
+                </span>
+              )}
+              {row.text}
+            </div>
+          )
+        })}
         {clarification && (
           <div className="ai-clarify-chip" role="status">
             <span className="ai-clarify-chip-eyebrow">{t('aiClarifyTitle')}</span>
@@ -456,30 +767,140 @@ export function ChatPanel({ onCollapse }: { onCollapse?: () => void }) {
           />
         </div>
       ) : (
-        <div className="chat-input-row">
+        <div
+          className="chat-composer"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+          }}
+          onDrop={(e) => {
+            if (e.dataTransfer.files.length > 0) {
+              e.preventDefault()
+              void addFiles(e.dataTransfer.files)
+            }
+          }}
+        >
+          {pending.length > 0 && (
+            <div className="chat-chips">
+              {pending.map((f) => (
+                <FileChip
+                  key={f.id}
+                  name={f.name}
+                  ext={extOf(f.name)}
+                  size={f.size}
+                  {...(f.previewUrl ? { previewUrl: f.previewUrl } : {})}
+                  onRemove={() => setPending((prev) => prev.filter((p) => p.id !== f.id))}
+                />
+              ))}
+            </div>
+          )}
           <textarea
+            ref={inputRef}
             className="chat-input"
             value={draft}
             placeholder={t('chatPlaceholder')}
-            rows={3}
+            rows={1}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length > 0) {
+                e.preventDefault()
+                void addFiles(e.clipboardData.files)
+              }
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 if (streaming) abort()
                 else void send()
               }
             }}
           />
-          {streaming ? (
-            <button className="chat-send" onClick={abort}>
-              {t('chatStop')}
+          <div className="chat-composer-bar">
+            <button
+              className="chat-icon-btn"
+              data-tip={t('chatAttach')}
+              aria-label={t('chatAttach')}
+              onClick={() => pickerRef.current?.click()}
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M10.8 4.4L6.2 9a1.6 1.6 0 002.26 2.27l4.6-4.6a2.93 2.93 0 00-4.15-4.14l-4.6 4.6a4.27 4.27 0 006.03 6.04l4.25-4.25"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
-          ) : (
-            <button className="chat-send" disabled={!draft.trim()} onClick={() => void send()}>
-              {t('chatSend')}
-            </button>
-          )}
+            <input
+              ref={pickerRef}
+              type="file"
+              multiple
+              hidden
+              accept="image/*,.pdf,.pptx,.ppt,.docx,.xlsx,.csv,.txt,.md,.json"
+              onChange={(e) => {
+                if (e.target.files?.length) void addFiles(e.target.files)
+                e.target.value = ''
+              }}
+            />
+            {status?.model && (
+              <span className="chat-model" title={`${status.model.provider}/${status.model.id}`}>
+                {status.model.name}
+              </span>
+            )}
+            <span className="chat-composer-spacer" />
+            {snapshotId != null && (
+              <button
+                type="button"
+                className="chat-icon-btn"
+                disabled={streaming}
+                data-tip={t('aiRollback')}
+                aria-label={t('aiRollback')}
+                onClick={() => void rollback(snapshotId)}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M5.91026 4L2.5 7.14791L5.91026 10.8205" />
+                  <path d="M3.96154 7.41028H15.1636C18.5169 7.41028 21.3646 10.1484 21.4953 13.5C21.6334 17.0416 18.707 20.0769 15.1636 20.0769H6.88384" />
+                </svg>
+              </button>
+            )}
+            {streaming ? (
+              <button
+                className="chat-send-btn stop"
+                data-tip={t('chatStop')}
+                aria-label={t('chatStop')}
+                onClick={abort}
+              >
+                <span className="chat-stop-square" aria-hidden />
+              </button>
+            ) : (
+              <button
+                className="chat-send-btn"
+                disabled={!canSend}
+                data-tip={t('chatSend')}
+                aria-label={t('chatSend')}
+                onClick={() => void send()}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                  <path
+                    d="M7 11.5v-9M3.5 6L7 2.5 10.5 6"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

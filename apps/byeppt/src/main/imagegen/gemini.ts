@@ -1,7 +1,8 @@
 /**
  * Gemini image generation ("banana" series: gemini-2.5-flash-image,
  * gemini-3-pro-image, …) via the Generative Language API generateContent with
- * image response modalities. GEMINI_BASE_URL overrides the endpoint (relays).
+ * image response modalities. `baseUrl` (settings) overrides the endpoint,
+ * then GEMINI_BASE_URL (relays), then the official endpoint.
  */
 import type { ImageGenRequest } from './index'
 import { imageGenApiKey } from './keys'
@@ -14,10 +15,10 @@ interface GeminiPart {
 }
 
 export async function generateGeminiImage(
-  req: ImageGenRequest & { model: string },
+  req: ImageGenRequest & { model: string; baseUrl?: string },
 ): Promise<Uint8Array> {
   const apiKey = await imageGenApiKey('gemini')
-  if (!apiKey) throw new Error('no-api-key: configure a Google/Gemini API key in Settings first')
+  if (!apiKey) throw new Error('no-api-key: configure a Gemini API key in Settings first')
 
   const parts: GeminiPart[] = [{ text: req.prompt }]
   for (const ref of req.referenceImages ?? []) {
@@ -25,7 +26,7 @@ export async function generateGeminiImage(
     if (data) parts.push({ inlineData: data })
   }
 
-  const base = (process.env.GEMINI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
+  const base = (req.baseUrl || process.env.GEMINI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
   const url = `${base}/v1beta/models/${encodeURIComponent(req.model)}:generateContent`
   const body: Record<string, unknown> = {
     contents: [{ role: 'user', parts }],

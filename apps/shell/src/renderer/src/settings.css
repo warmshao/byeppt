@@ -164,6 +164,26 @@
   word-break: break-all;
 }
 
+/* About pane: hyperlink value + GitHub star button */
+.set-link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.set-link:hover {
+  text-decoration: underline;
+}
+
+.set-btn-star {
+  gap: 6px;
+  color: var(--accent);
+}
+
+.set-btn-star svg {
+  flex-shrink: 0;
+}
+
 /* GenMail-style select pill: the visible layer is just the current value +
    chevron (width hugs the content); the real <select> sits on top invisibly
    and only supplies the click target and the native popup. */
@@ -272,6 +292,11 @@
 .set-provider-text {
   min-width: 0;
   flex: 1;
+  /* name on the first line, endpoint + messages stacked underneath */
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 3px;
 }
 .set-provider-name {
   display: flex;
@@ -282,6 +307,140 @@
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+.set-input.set-provider-search {
+  /* .set-input is flex:1 for inline edit rows; in the pane's column flex that
+     would stretch the box vertically — pin it back to a normal single-line field.
+     (two-class selector: .set-input is defined further down at equal weight) */
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  margin-bottom: 8px;
+  font-family: inherit;
+}
+/* "in use" pill replacing the enable button on the active provider */
+.set-inuse {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* verified provider: green enable (app-scoped greens — the suite has no
+   success token) */
+.set-pane {
+  --enable-bg: #1a7f37;
+  --enable-bg-hover: #15652d;
+}
+[data-theme='dark'] .set-pane {
+  --enable-bg: #238636;
+  --enable-bg-hover: #2ea043;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) .set-pane {
+    --enable-bg: #238636;
+    --enable-bg-hover: #2ea043;
+  }
+}
+.set-btn-enable {
+  background: var(--enable-bg);
+  color: var(--color-btn-primary-text);
+}
+.set-btn-enable:hover:not(:disabled) {
+  background: var(--enable-bg-hover);
+}
+/* connectivity test failed — error glyph; the reason sits in its tooltip */
+.set-btn-fail {
+  color: var(--danger);
+  font-weight: 700;
+}
+/* provider edit dialog (Base URL + API key + model) */
+.set-config {
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+}
+.set-config-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-config-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.set-config .set-input,
+.set-config-select {
+  margin-top: 4px;
+  width: 100%;
+}
+.set-config-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.set-config .set-field-value {
+  margin-top: 10px;
+  text-align: left;
+}
+.set-config-hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.set-config-login {
+  margin-top: 14px;
+  justify-content: center;
+}
+/* OAuth login phase inside the edit dialog */
+.set-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.set-oauth-url {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  user-select: text;
+}
+.set-oauth .set-input {
+  flex: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.set-oauth-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.set-config-buttons {
+  align-items: center;
+  margin-top: 20px;
+}
+.set-config-spacer {
+  flex: 1;
 }
 .set-key-badge {
   font-size: 11px;

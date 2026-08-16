@@ -39,12 +39,36 @@ export interface AgentEventPayload {
   [key: string]: unknown
 }
 
+/** One file the user attached in the AI panel (copied into the chat's materials folder). */
+export interface AgentAttachment {
+  name: string
+  /** absolute path inside <userData>/projects/<pid>/attachments/<chatId>/ */
+  path: string
+  ext: string
+  sizeBytes: number
+  mime?: string
+}
+
 export interface AgentApi {
   status: () => Promise<AgentStatus>
   prompt: (text: string) => Promise<{ ok: boolean; error?: string }>
   abort: () => Promise<{ ok: boolean }>
   setModel: (sel: { provider: string; id: string }) => Promise<{ ok: boolean; error?: string }>
   newSession: () => Promise<{ ok: boolean }>
+  /** Jump to the shell Home tab and open the model settings pane (no-op standalone) */
+  openModelSettings: () => Promise<{ ok: boolean }>
+  /** Copy picked/pasted files into this deck's per-chat materials folder */
+  saveAttachments: (args: {
+    filePath: string | null
+    tempChatId?: string
+    files: Array<{ name: string; mime?: string; base64: string }>
+  }) => Promise<{
+    ok: boolean
+    projectId?: string
+    chatId?: string
+    attachments?: AgentAttachment[]
+    error?: string
+  }>
   onEvent: (handler: (evt: AgentEventPayload) => void) => () => void
   onStatus: (handler: (status: AgentStatus) => void) => () => void
 }

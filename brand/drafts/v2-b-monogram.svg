@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#E8452F"/>
+      <stop offset="1" stop-color="#D2331D"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.28" cy="0.14" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#6B1508" flood-opacity="0.38"/>
+    </filter>
+    <path id="spark" d="M 0 -100 C 7 -32 32 -7 100 0 C 32 7 7 32 0 100 C -7 32 -32 7 -100 0 C -32 -7 -7 -32 0 -100 Z"/>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#tile)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#sheen)"/>
+
+  <!-- lowercase b, bowl = 16:9 slide -->
+  <g filter="url(#cardShadow)">
+    <rect x="252" y="252" width="112" height="452" rx="56" fill="#FFFFFF"/>
+    <path fill="#FFFFFF" fill-rule="evenodd"
+          d="M 336 420 h 268 a 86 86 0 0 1 86 86 v 112 a 86 86 0 0 1 -86 86 h -268 z
+             M 442 502 h 162 a 26 26 0 0 1 26 26 v 68 a 26 26 0 0 1 -26 26 h -162 a 26 26 0 0 1 -26 -26 v -68 a 26 26 0 0 1 26 -26 z"/>
+  </g>
+
+  <!-- AI sparkle -->
+  <use href="#spark" transform="translate(764 300) scale(0.62)" fill="#FFFFFF"/>
+  <use href="#spark" transform="translate(668 214) scale(0.26)" fill="#FFFFFF" opacity="0.9"/>
+</svg>

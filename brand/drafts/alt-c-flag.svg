@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF9046"/>
+      <stop offset="0.52" stop-color="#F2591F"/>
+      <stop offset="1" stop-color="#D63F12"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.28" cy="0.14" r="0.9">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F2591F"/>
+      <stop offset="1" stop-color="#D63F12"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#7A1E05" flood-opacity="0.35"/>
+    </filter>
+    <path id="spark" d="M 0 -100 C 7 -32 32 -7 100 0 C 32 7 7 32 0 100 C -7 32 -32 7 -100 0 C -32 -7 -7 -32 0 -100 Z"/>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#tile)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#sheen)"/>
+
+  <!-- slide flag waving goodbye: right edge is a wave -->
+  <g transform="rotate(-6 512 560)" filter="url(#cardShadow)">
+    <path fill="#FFFFFF"
+          d="M 262 412
+             h 330
+             c 90 0 60 62 130 66
+             c 70 4 96 -30 96 40
+             l 0 130
+             c 0 66 -30 34 -96 40
+             c -70 6 -40 66 -130 66
+             h -330
+             a 48 48 0 0 1 -48 -48
+             v -246
+             a 48 48 0 0 1 48 -48 z"/>
+    <!-- title line on the slide -->
+    <rect x="330" y="478" width="220" height="34" rx="17" fill="url(#wave)" opacity="0.9"/>
+    <rect x="330" y="546" width="300" height="26" rx="13" fill="url(#wave)" opacity="0.55"/>
+    <rect x="330" y="606" width="260" height="26" rx="13" fill="url(#wave)" opacity="0.35"/>
+  </g>
+
+  <use href="#spark" transform="translate(794 322) scale(0.70)" fill="#FFFFFF"/>
+  <use href="#spark" transform="translate(688 236) scale(0.26)" fill="#FFFFFF" opacity="0.9"/>
+</svg>

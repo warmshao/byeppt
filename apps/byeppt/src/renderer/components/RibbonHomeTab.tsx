@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { platformShortcuts } from '@byeppt/i18n'
 import { isSymbolFontFamily } from '@byeppt/ui'
+import { VsurfLogo } from './VsurfLogo'
 import { saveEditSelection } from '../TextEditOverlay'
 import { armColorInput } from '../color-input'
 import { displayFontFamily } from '../konva-adapter'
@@ -63,6 +64,7 @@ export function RibbonHomeTab({ rb }: { rb: RibbonTabCtx }) {
     brushMode,
     canDistribute,
     canPaste,
+    chatOpen,
     curBulletChar,
     curAlign,
     curFontFamily,
@@ -99,6 +101,7 @@ export function RibbonHomeTab({ rb }: { rb: RibbonTabCtx }) {
     onStrike,
     onTextColor,
     onTextToggle,
+    onToggleChat,
     onToggleFormat,
     arrangeOpen,
     closePanels,
@@ -154,6 +157,18 @@ export function RibbonHomeTab({ rb }: { rb: RibbonTabCtx }) {
   return (
     <>
       <Group label={t('ribbonGroupClipboard')}>
+        <button
+          className={`rb-big rb-ai${chatOpen ? ' active' : ''}`}
+          onClick={onToggleChat}
+          data-tip="ByePPT is powered by VSurf"
+          aria-label={t('chatTitle')}
+          aria-expanded={chatOpen}
+        >
+          <span className="rb-big-icon">
+            <VsurfLogo size={BIG} />
+          </span>
+          <span>{t('chatTitle')}</span>
+        </button>
         <button
           className="rb-big"
           disabled={!hasDoc || !canPaste}

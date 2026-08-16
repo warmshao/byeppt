@@ -10,6 +10,7 @@ import type {
   TimelineEntryItem,
   UiLanguage,
   AgentSettingsApi,
+  AgentOAuthEvent,
 } from '../shared/home-api'
 import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
@@ -69,6 +70,10 @@ const homeApi: HomeApi = {
     if (typeof path !== 'string' || !path) throw new Error('Invalid path.')
     await ipcRenderer.invoke(HOME_CHANNELS.openPath, path)
   },
+  async openExternal(url) {
+    if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new Error('Invalid URL.')
+    await ipcRenderer.invoke(HOME_CHANNELS.openExternal, url)
+  },
   async browse() {
     await ipcRenderer.invoke(HOME_CHANNELS.browse)
   },
@@ -109,13 +114,6 @@ const homeApi: HomeApi = {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getAppVersion)
     return typeof result === 'string' ? result : ''
   },
-  async onboardingSeen() {
-    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.onboardingSeen)
-    return result === true
-  },
-  async setOnboardingSeen() {
-    await ipcRenderer.invoke(HOME_CHANNELS.setOnboardingSeen)
-  },
   async getTheme() {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getTheme)
     return result === 'dark' || result === 'light' ? result : 'system'
@@ -139,6 +137,11 @@ const homeApi: HomeApi = {
     }
     ipcRenderer.on('app:theme-changed', listener)
     return () => ipcRenderer.removeListener('app:theme-changed', listener)
+  },
+  onOpenAgentSettings(handler) {
+    const listener = () => handler()
+    ipcRenderer.on('home:open-agent-settings', listener)
+    return () => ipcRenderer.removeListener('home:open-agent-settings', listener)
   },
 }
 
@@ -213,16 +216,32 @@ contextBridge.exposeInMainWorld('aiOfficeTabs', tabsApi)
 
 const agentSettingsApi: AgentSettingsApi = {
   listProviders: () => ipcRenderer.invoke('agent:list-providers'),
+  listProviderModels: (provider) => ipcRenderer.invoke('agent:list-provider-models', provider),
+  saveProviderConfig: (provider, cfg) =>
+    ipcRenderer.invoke('agent:save-provider-config', provider, cfg),
+  enableProvider: (provider) => ipcRenderer.invoke('agent:enable-provider', provider),
   setProviderKey: (provider, key) => ipcRenderer.invoke('agent:set-key', provider, key),
   clearProviderKey: (provider) => ipcRenderer.invoke('agent:clear-key', provider),
   testProviderKey: (provider) => ipcRenderer.invoke('agent:test-key', provider),
+  loginOAuth: (provider) => ipcRenderer.invoke('agent:oauth-login', provider),
+  respondOAuth: (reqId, value) => ipcRenderer.invoke('agent:oauth-respond', reqId, value),
+  cancelOAuth: () => ipcRenderer.invoke('agent:oauth-cancel'),
+  onOAuthEvent(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) =>
+      handler(payload as AgentOAuthEvent)
+    ipcRenderer.on('agent:oauth', listener)
+    return () => ipcRenderer.removeListener('agent:oauth', listener)
+  },
   getModel: async () => (await ipcRenderer.invoke('agent:status'))?.model ?? null,
   listModels: async () =>
     (await ipcRenderer.invoke('agent:status'))?.availableModels ?? [],
   setModel: (sel) => ipcRenderer.invoke('agent:set-model', sel),
   imageGenStatus: () => ipcRenderer.invoke('imagegen:status'),
-  getImageGenSettings: () => ipcRenderer.invoke('imagegen:get-settings'),
-  setImageGenSettings: (s) => ipcRenderer.invoke('imagegen:set-settings', s),
+  setImageGenActive: (provider) => ipcRenderer.invoke('imagegen:set-active', provider),
+  setImageGenConfig: (provider, cfg) => ipcRenderer.invoke('imagegen:set-config', provider, cfg),
+  setImageGenKey: (provider, key) => ipcRenderer.invoke('imagegen:set-key', provider, key),
+  clearImageGenKey: (provider) => ipcRenderer.invoke('imagegen:clear-key', provider),
+  testImageGen: (provider) => ipcRenderer.invoke('imagegen:test', provider),
 }
 
 contextBridge.exposeInMainWorld('aiOfficeAgent', agentSettingsApi)

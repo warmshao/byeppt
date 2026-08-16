@@ -321,6 +321,19 @@ const agentApi: AgentApi = {
   abort: () => ipcRenderer.invoke('agent:abort'),
   setModel: (sel: { provider: string; id: string }) => ipcRenderer.invoke('agent:set-model', sel),
   newSession: () => ipcRenderer.invoke('agent:new-session'),
+  openModelSettings: async () => {
+    try {
+      return (await ipcRenderer.invoke('shell:open-agent-settings')) ?? { ok: false }
+    } catch {
+      // standalone mode has no shell home to jump to
+      return { ok: false }
+    }
+  },
+  saveAttachments: (args: {
+    filePath: string | null
+    tempChatId?: string
+    files: Array<{ name: string; mime?: string; base64: string }>
+  }) => ipcRenderer.invoke('agent:save-attachments', args),
   onEvent: (handler: (evt: AgentEventPayload) => void) => {
     const listener = (_e: IpcRendererEvent, evt: AgentEventPayload) => handler(evt)
     ipcRenderer.on('agent:event', listener)

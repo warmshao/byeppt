@@ -21,6 +21,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@byeppt/pptx-render": "*"
+    "@byeppt/pptx-render": "*",
+    "@lobehub/icons": "^5.16.0"
   }
 }

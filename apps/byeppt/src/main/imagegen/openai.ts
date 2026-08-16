@@ -1,6 +1,7 @@
 /**
  * OpenAI image generation (gpt-image series) via the Images API.
- * OPENAI_BASE_URL overrides the endpoint (relays / compatible gateways).
+ * `baseUrl` (settings) overrides the endpoint, then OPENAI_BASE_URL
+ * (relays / compatible gateways), then the official endpoint.
  */
 import type { ImageGenRequest } from './index'
 import { imageGenApiKey } from './keys'
@@ -8,12 +9,12 @@ import { imageGenApiKey } from './keys'
 const DEFAULT_BASE = 'https://api.openai.com'
 
 export async function generateOpenAIImage(
-  req: ImageGenRequest & { model: string },
+  req: ImageGenRequest & { model: string; baseUrl?: string },
 ): Promise<Uint8Array> {
   const apiKey = await imageGenApiKey('openai')
   if (!apiKey) throw new Error('no-api-key: configure an OpenAI API key in Settings first')
 
-  const base = (process.env.OPENAI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
+  const base = (req.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
   const body: Record<string, unknown> = {
     model: req.model,
     prompt: req.prompt,
