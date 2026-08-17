@@ -54,6 +54,14 @@ system mode).
   rebuild after changing it or the change silently does not run.
 - In dev mode, preload changes require a rebuild — a stale preload leaves the
   renderer blank.
+- The shell's slides tab uses `apps/byeppt/out/preload/index.js` as its preload,
+  but root `npm run dev` only starts the byeppt *renderer* dev server. The
+  `predev` hook (`tools/ensure-slides-preload.mjs`) builds `@byeppt/app` when
+  that bundle is missing (a missing preload = blank slides tab). It does not
+  watch: after editing `apps/byeppt/src/preload`, rebuild explicitly with
+  `npm run build -w @byeppt/app`. Dev also needs Node ≥ 22.12 (engines) —
+  under Node 20.18 the slides renderer dev server dies on `ERR_REQUIRE_ESM`
+  and slides tabs load nothing.
 - Workspace packages listed in the app's `dependencies` must also be added to
   the `externalizeDepsPlugin` `exclude` list, or the packaged app crashes on
   launch.
