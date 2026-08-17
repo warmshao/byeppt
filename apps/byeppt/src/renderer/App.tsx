@@ -2504,7 +2504,7 @@ export function App() {
   const inkCount = useMemo(() => (slide ? inkNodesOf(slide).length : 0), [slide])
   const clearInk = useCallback(() => arrangeActions.clearInk(ctxRef.current), [])
 
-  const _fileName = slide ? path?.split('/').pop() || t('appUntitledPresentation') : undefined
+  const _fileName = slide ? path?.split(/[\\/]/).pop() || t('appUntitledPresentation') : undefined
 
   return (
     <div className="app">
@@ -3540,7 +3540,7 @@ export function App() {
 
       {renameDlgOpen && path && (
         <RenameDialog
-          currentName={(path.split('/').pop() ?? '').replace(/\.pptx$/i, '')}
+          currentName={(path.split(/[\\/]/).pop() ?? '').replace(/\.pptx$/i, '')}
           onClose={() => setRenameDlgOpen(false)}
           onRename={async (base) => {
             try {

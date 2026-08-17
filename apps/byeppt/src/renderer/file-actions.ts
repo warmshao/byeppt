@@ -81,7 +81,7 @@ export async function saveAs(ctx: ActionCtx): Promise<void> {
 
 /** Export base name: file name without the .pptx extension */
 export function exportBaseName(ctx: ActionCtx): string {
-  return (ctx.path?.split('/').pop() ?? t('appUntitledPresentation')).replace(/\.pptx$/i, '')
+  return (ctx.path?.split(/[\\/]/).pop() ?? t('appUntitledPresentation')).replace(/\.pptx$/i, '')
 }
 
 /** Export as images: each page (skipping hidden ones) rendered offscreen to 2x PNG, written to disk by the main process */
