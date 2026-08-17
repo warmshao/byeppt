@@ -828,7 +828,7 @@ installContextMenu(app, () => contextMenuLabels(currentLang()))
 registerHomeIpc()
 registerTabsIpc()
 registerSlidesIpc()
-registerAgentIpc()
+registerAgentIpc(getProjectStore)
 registerSlidesProjectChatIpc()
 registerProjectPanelIpc()
 

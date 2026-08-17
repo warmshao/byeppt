@@ -512,33 +512,38 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
    * session file on next ensureSession.
    */
   ipcMain.handle('agent:bind', async (e, args: { filePath: string | null; tempChatId?: string }) => {
-    const store = getStore?.()
-    if (!store) return { ok: false, error: 'store-unavailable' }
-    store.ensureDefaultProject()
-    const { projectId, chatId } = args.filePath
-    ? store.resolveChatForFile(args.filePath)
-    : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
-    const wcId = e.sender.id
-    const prev = tabDeck.get(wcId)
-    if (args.filePath && prev && prev.deckKey !== chatId && prev.deckKey.startsWith('unsaved-')) {
-      const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
-      await disposeDeck(prev.deckKey)
-      store.rebindChatToFile('default', prev.deckKey, args.filePath)
-      if (oldFile) {
-        const moved = join(
-          store.agentWorkDir(projectId, chatId),
-          'sessions',
-          oldFile.split(/[\\/]/).pop()!,
-        )
-        if (existsSync(moved)) pendingResume.set(chatId, moved)
+    try {
+      const store = getStore?.()
+      if (!store) return { ok: false, error: 'store-unavailable' }
+      store.ensureDefaultProject()
+      const { projectId, chatId } = args.filePath
+        ? store.resolveChatForFile(args.filePath)
+        : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
+      const wcId = e.sender.id
+      const prev = tabDeck.get(wcId)
+      if (args.filePath && prev && prev.deckKey !== chatId && prev.deckKey.startsWith('unsaved-')) {
+        const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
+        await disposeDeck(prev.deckKey)
+        store.rebindChatToFile('default', prev.deckKey, args.filePath)
+        if (oldFile) {
+          const moved = join(
+            store.agentWorkDir(projectId, chatId),
+            'sessions',
+            oldFile.split(/[\\/]/).pop()!,
+          )
+          if (existsSync(moved)) pendingResume.set(chatId, moved)
+        }
       }
+      tabDeck.set(wcId, { deckKey: chatId, workdir: store.agentWorkDir(projectId, chatId) })
+      if (!prev) {
+        // Session survives a reload (the next bind re-attaches); just drop the routing entry
+        e.sender.once('destroyed', () => tabDeck.delete(wcId))
+      }
+      return { ok: true, deckKey: chatId }
+    } catch (err) {
+      console.error('[agent] bind failed:', err)
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
-    tabDeck.set(wcId, { deckKey: chatId, workdir: store.agentWorkDir(projectId, chatId) })
-    if (!prev) {
-      // Session survives a reload (the next bind re-attaches); just drop the routing entry
-      e.sender.once('destroyed', () => tabDeck.delete(wcId))
-    }
-    return { ok: true, deckKey: chatId }
   })
 
   ipcMain.handle('agent:status', (e) => getStatus(tabDeck.get(e.sender.id)?.deckKey))

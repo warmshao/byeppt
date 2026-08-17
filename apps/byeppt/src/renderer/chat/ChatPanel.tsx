@@ -666,20 +666,40 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     access?.applyDeck(restored, Math.min(access.getCurrent(), restored.length - 1))
   }, [])
 
-  // Bind this panel to its deck (per-tab session routing + private workdir).
-  // Re-bind when the deck's file path changes — an unsaved deck that just got
-  // saved is folded into the file's chat on the main side.
-  useEffect(() => {
-    let cancelled = false
-    void window.agentApi
-      .bind({ filePath, tempChatId: tempChatIdRef.current })
-      .then((res) => {
-        if (!cancelled && res.ok && res.deckKey) deckKeyRef.current = res.deckKey
+  /**
+   * Bind this panel to its deck (per-tab session routing + private workdir).
+   * Retried before every agent action: a failed bind (stale dev preload,
+   * main-side error) must not wedge the panel into permanent 'unbound'.
+   */
+  const bindDeck = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (deckKeyRef.current) return { ok: true }
+    if (typeof window.agentApi.bind !== 'function') {
+      // stale preload in dev — the running window needs a full restart
+      return { ok: false, error: 'bind-unavailable-restart-app' }
+    }
+    try {
+      const res = await window.agentApi.bind({
+        filePath,
+        tempChatId: tempChatIdRef.current,
       })
-    return () => {
-      cancelled = true
+      if (res.ok && res.deckKey) {
+        deckKeyRef.current = res.deckKey
+        return { ok: true }
+      }
+      console.warn('[chat] agent bind failed:', res.error)
+      return { ok: false, error: res.error ?? 'bind-failed' }
+    } catch (err) {
+      console.warn('[chat] agent bind failed:', err)
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   }, [filePath])
+
+  // Bind on mount and re-bind when the deck's file path changes — an unsaved
+  // deck that just got saved is folded into the file's chat on the main side.
+  useEffect(() => {
+    deckKeyRef.current = null
+    void bindDeck()
+  }, [bindDeck])
 
   useEffect(() => {
     void window.agentApi.status().then(setStatus)
@@ -893,6 +913,11 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     const text = draft.trim()
     const files = pending
     if (!text && files.length === 0) return
+    const bound = await bindDeck()
+    if (!bound.ok) {
+      setRows((prev) => [...prev, { id: nextId(), kind: 'error', text: bound.error ?? 'bind-failed' }])
+      return
+    }
     setDraft('')
     setPending([])
     let promptText = text
@@ -946,7 +971,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
       ])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, pending, filePath])
+  }, [draft, pending, filePath, bindDeck])
 
   const abort = useCallback(() => {
     // A pending survey card would otherwise wait forever on a dead run
@@ -977,11 +1002,16 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     setHistoryOpen(false)
     resetStreamState()
     setRows([])
+    const bound = await bindDeck()
+    if (!bound.ok) {
+      setRows([{ id: nextId(), kind: 'error', text: bound.error ?? 'bind-failed' }])
+      return
+    }
     const res = await window.agentApi.newSession()
     if (!res.ok && res.error) {
       setRows((prev) => [...prev, { id: nextId(), kind: 'error', text: res.error! }])
     }
-  }, [resetStreamState])
+  }, [resetStreamState, bindDeck])
 
   const toggleHistory = useCallback(async () => {
     if (historyOpen) {
@@ -990,13 +1020,24 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     }
     setHistoryOpen(true)
     setHistoryItems(null)
+    const bound = await bindDeck()
+    if (!bound.ok) {
+      setHistoryOpen(false)
+      setRows((prev) => [...prev, { id: nextId(), kind: 'error', text: bound.error ?? 'bind-failed' }])
+      return
+    }
     setHistoryItems(await window.agentApi.listSessions())
-  }, [historyOpen])
+  }, [historyOpen, bindDeck])
 
   const onResumeSession = useCallback(
     async (sessionFile: string) => {
       setHistoryOpen(false)
       resetStreamState()
+      const bound = await bindDeck()
+      if (!bound.ok) {
+        setRows((prev) => [...prev, { id: nextId(), kind: 'error', text: bound.error ?? 'bind-failed' }])
+        return
+      }
       const res = await window.agentApi.resumeSession(sessionFile)
       if (res.ok && Array.isArray(res.messages)) {
         setRows(messagesToRows(res.messages))
@@ -1007,7 +1048,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
         ])
       }
     },
-    [resetStreamState],
+    [resetStreamState, bindDeck],
   )
 
   const streaming = status?.streaming ?? false
