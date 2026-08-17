@@ -1368,6 +1368,9 @@ export interface SlidesApi {
   onOpened: (handler: (result: OpenResult) => void) => () => void
   /** The file was renamed externally (shell Home list rename) — pushes the new path, the renderer updates the title bar */
   onRenamed: (handler: (newPath: string) => void) => () => void
+  /** Rename the open file on disk (same directory). Bridged to the shell's home:rename-file handler,
+   *  which also syncs the tab title, recent lists and the main-process session path. */
+  renameFile: (path: string, newName: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   /** New blank page (with a specific layout): inserted after slide sourceIndex, rels pointing at the chosen layout */
   addSlideWithLayout: (
     op: AddSlideWithLayoutOp,

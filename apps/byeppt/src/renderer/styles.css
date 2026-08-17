@@ -2911,6 +2911,12 @@ body.vib .slide-list {
   color: var(--color-error);
 }
 
+.modal .dlg-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-error);
+}
+
 .provider-tabs {
   display: flex;
   flex-wrap: wrap;

@@ -286,6 +286,9 @@ export interface Props {
   onUndo: () => void
   onRedo: () => void
   onSaveAs: () => void
+  /** Open the rename dialog (file menu); only meaningful when the deck has a file on disk */
+  hasFile: boolean
+  onRename: () => void
   /** Export as PDF (hidden slides skipped) */
   onExportPdf: () => void
   onPrint: () => void

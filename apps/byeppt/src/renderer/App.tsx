@@ -45,6 +45,7 @@ import { IconNotes, IconPlayBoxed } from './components/icons'
 import { PresenterView } from './components/PresenterView'
 import { CustomShowDialog } from './components/CustomShowDialog'
 import { PrintDialog } from './components/PrintDialog'
+import { RenameDialog } from './components/RenameDialog'
 import { FindReplaceDialog } from './components/FindReplaceDialog'
 import { formatClock, type CustomShow } from './slideshow-utils'
 import { ContextMenu } from './components/ContextMenu'
@@ -842,6 +843,7 @@ export function App() {
   const exportPdf = useCallback(() => fileActions.exportPdf(ctxRef.current), [])
 
   const [printDlgOpen, setPrintDlgOpen] = useState(false)
+  const [renameDlgOpen, setRenameDlgOpen] = useState(false)
 
   /** Whether focus is in a text input (input/textarea/contentEditable) — these cases use native undo/delete */
   const inTextField = () => {
@@ -2521,6 +2523,8 @@ export function App() {
         onUndo={() => void undo()}
         onRedo={() => void redo()}
         onSaveAs={() => void saveAs()}
+        hasFile={!!path}
+        onRename={() => setRenameDlgOpen(true)}
         onExportPdf={() => void exportPdf()}
         onPrint={() => setPrintDlgOpen(true)}
         onExportImages={() => void exportImages()}
@@ -3531,6 +3535,24 @@ export function App() {
           current={current}
           onClose={() => setPrintDlgOpen(false)}
           setStatus={setStatus}
+        />
+      )}
+
+      {renameDlgOpen && path && (
+        <RenameDialog
+          currentName={(path.split('/').pop() ?? '').replace(/\.pptx$/i, '')}
+          onClose={() => setRenameDlgOpen(false)}
+          onRename={async (base) => {
+            try {
+              const r = await window.slidesApi.renameFile(path, `${base}.pptx`)
+              if (!r.ok) return r.error ?? t('ribbonRenameFailed')
+              // the shell also pushes slides:renamed → onRenamed; setting here covers standalone
+              if (r.path) setPath(r.path)
+              return null
+            } catch {
+              return t('ribbonRenameFailed')
+            }
+          }}
         />
       )}
 

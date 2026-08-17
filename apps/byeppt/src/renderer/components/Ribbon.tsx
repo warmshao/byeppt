@@ -721,6 +721,8 @@ export function Ribbon({
   onUndo,
   onRedo,
   onSaveAs,
+  hasFile,
+  onRename,
   onExportPdf,
   onPrint,
   onExportImages,
@@ -1394,6 +1396,15 @@ export function Ribbon({
                   }}
                 >
                   {t('ribbonFileSaveAs')} <span className="file-menu-key">Ctrl+Shift+S</span>
+                </button>
+                <button
+                  disabled={!hasFile}
+                  onClick={() => {
+                    setFileOpen(false)
+                    onRename()
+                  }}
+                >
+                  {t('ribbonFileRename')}
                 </button>
                 <button
                   disabled={!hasDoc}

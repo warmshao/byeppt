@@ -292,6 +292,9 @@ const api: SlidesApi = {
     ipcRenderer.on('slides:renamed', listener)
     return () => ipcRenderer.removeListener('slides:renamed', listener)
   },
+  // handled by the shell main process (apps/shell HOME_CHANNELS.renameFile); rejects in standalone dev
+  renameFile: (path: string, newName: string) =>
+    ipcRenderer.invoke('home:rename-file', path, newName),
   presenterStart: () => ipcRenderer.invoke('slides:presenter-start'),
   presenterSync: (state: ShowSyncState) => ipcRenderer.send('slides:presenter-sync', state),
   presenterInk: (ev: ShowInkEvent) => ipcRenderer.send('slides:presenter-ink', ev),
