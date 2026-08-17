@@ -750,133 +750,170 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
       } else if (evt.type === 'agent_end') {
         void finishHistoryBatch()
       }
-      setRows((prev) => {
-        const next = [...prev]
-        const mutate = (id: string, fn: (row: ChatRow) => ChatRow) => {
-          const i = next.findIndex((r) => r.id === id)
-          if (i >= 0) next[i] = fn(next[i]!)
-        }
-        // Runs don't guarantee a message_end/tool_execution_end for every stream
-        // (abort, provider error, or a new assistant segment superseding the last):
-        // agent_end force-settles anything still marked streaming so no spinner leaks
-        if (evt.type === 'agent_end') {
-          for (let i = 0; i < next.length; i++) {
-            const r = next[i]!
-            if (!r.streaming) continue
-            next[i] =
-              r.kind === 'tool' && !r.toolResult ? { ...r, streaming: false, isError: true } : { ...r, streaming: false }
-          }
-          activeAssistantRef.current = null
-          activeToolsRef.current.clear()
-          return next
-        }
-        switch (evt.type) {
-          case 'message_start': {
-            const msg = evt.message as { role?: string }
-            if (msg?.role === 'user') {
-              if (skipUserEchoRef.current) {
-                skipUserEchoRef.current = false
-              } else {
-                next.push({ id: nextId(), kind: 'user', text: messageParts(evt.message).text })
-              }
-            } else if (msg?.role === 'assistant') {
-              // a new assistant segment supersedes a still-open one — settle it first
-              const prevId = activeAssistantRef.current
-              if (prevId) mutate(prevId, (r) => ({ ...r, streaming: false }))
-              const id = nextId()
-              activeAssistantRef.current = id
+      // NOTE: every setRows updater below must stay PURE — StrictMode dev
+      // double-invokes updaters (first result commits, side effects of both
+      // runs persist). All id allocation and ref mutation happens up here,
+      // outside the updater, or streamed text silently lands on rows that
+      // never committed (the "first message gets no reply" bug).
+      const mutateIn = (next: ChatRow[], id: string, fn: (row: ChatRow) => ChatRow) => {
+        const i = next.findIndex((r) => r.id === id)
+        if (i >= 0) next[i] = fn(next[i]!)
+      }
+      // Runs don't guarantee a message_end/tool_execution_end for every stream
+      // (abort, provider error, or a new assistant segment superseding the last):
+      // agent_end force-settles anything still marked streaming so no spinner leaks
+      if (evt.type === 'agent_end') {
+        activeAssistantRef.current = null
+        activeToolsRef.current.clear()
+        setRows((prev) =>
+          prev.map((r) =>
+            !r.streaming
+              ? r
+              : r.kind === 'tool' && !r.toolResult
+                ? { ...r, streaming: false, isError: true }
+                : { ...r, streaming: false },
+          ),
+        )
+        return
+      }
+      switch (evt.type) {
+        case 'message_start': {
+          const msg = evt.message as { role?: string }
+          if (msg?.role === 'user') {
+            // the composer already echoed this prompt locally — swallow the
+            // SDK's wire-text echo for it (it carries attachment paths)
+            if (skipUserEchoRef.current) {
+              skipUserEchoRef.current = false
+              return
+            }
+            const id = nextId()
+            const text = messageParts(evt.message).text
+            setRows((prev) => [...prev, { id, kind: 'user', text }])
+          } else if (msg?.role === 'assistant') {
+            // a new assistant segment supersedes a still-open one — settle it first
+            const prevId = activeAssistantRef.current
+            const id = nextId()
+            activeAssistantRef.current = id
+            setRows((prev) => {
+              const next = [...prev]
+              if (prevId) mutateIn(next, prevId, (r) => ({ ...r, streaming: false }))
               next.push({ id, kind: 'assistant', text: '', streaming: true })
-            }
-            break
+              return next
+            })
           }
-          case 'message_update': {
-            const id = activeAssistantRef.current
-            if (id) {
-              const { text, thinking } = messageParts(evt.message)
-              mutate(id, (r) => ({ ...r, text, ...(thinking ? { thinking } : {}) }))
-            }
-            break
+          break
+        }
+        case 'message_update': {
+          const id = activeAssistantRef.current
+          if (id) {
+            const { text, thinking } = messageParts(evt.message)
+            setRows((prev) => {
+              const next = [...prev]
+              mutateIn(next, id, (r) => ({ ...r, text, ...(thinking ? { thinking } : {}) }))
+              return next
+            })
           }
-          case 'message_end': {
-            const id = activeAssistantRef.current
-            if (id) {
-              const { text, thinking } = messageParts(evt.message)
-              mutate(id, (r) => ({
+          break
+        }
+        case 'message_end': {
+          const id = activeAssistantRef.current
+          activeAssistantRef.current = null
+          if (id) {
+            const { text, thinking } = messageParts(evt.message)
+            setRows((prev) => {
+              const next = [...prev]
+              mutateIn(next, id, (r) => ({
                 ...r,
                 streaming: false,
                 text: text || r.text,
                 ...(thinking ? { thinking } : {}),
               }))
-            }
-            activeAssistantRef.current = null
-            break
-          }
-          case 'tool_execution_start': {
-            const id = nextId()
-            activeToolsRef.current.set(String(evt.toolCallId), id)
-            const toolName = String(evt.toolName ?? '')
-            next.push({
-              id,
-              kind: 'tool',
-              toolName,
-              toolArgs: prettyArgs(evt.args),
-              toolSummary: toolArgsSummary(evt.args),
-              text: '',
-              streaming: true,
+              return next
             })
-            break
           }
-          case 'tool_execution_update': {
-            // stream partial output into the card so long ipython runs show progress
-            const id = activeToolsRef.current.get(String(evt.toolCallId))
-            if (id) {
-              const partial = toolResultText(evt.partialResult)
-              if (partial) mutate(id, (r) => ({ ...r, toolResult: cap(partial) }))
+          break
+        }
+        case 'tool_execution_start': {
+          const id = nextId()
+          activeToolsRef.current.set(String(evt.toolCallId), id)
+          const toolName = String(evt.toolName ?? '')
+          const toolArgs = prettyArgs(evt.args)
+          const toolSummary = toolArgsSummary(evt.args)
+          setRows((prev) => [
+            ...prev,
+            { id, kind: 'tool', toolName, toolArgs, toolSummary, text: '', streaming: true },
+          ])
+          break
+        }
+        case 'tool_execution_update': {
+          // stream partial output into the card so long ipython runs show progress
+          const id = activeToolsRef.current.get(String(evt.toolCallId))
+          if (id) {
+            const partial = toolResultText(evt.partialResult)
+            if (partial) {
+              setRows((prev) => {
+                const next = [...prev]
+                mutateIn(next, id, (r) => ({ ...r, toolResult: cap(partial) }))
+                return next
+              })
             }
-            break
           }
-          case 'tool_execution_end': {
-            const id = activeToolsRef.current.get(String(evt.toolCallId))
-            if (id) {
-              const out = toolResultText(evt.result)
-              mutate(id, (r) => ({
-                ...r,
-                streaming: false,
-                isError: evt.isError === true,
-                toolResult: cap(out),
-              }))
-            }
-            activeToolsRef.current.delete(String(evt.toolCallId))
-            break
+          break
+        }
+        case 'tool_execution_end': {
+          const id = activeToolsRef.current.get(String(evt.toolCallId))
+          activeToolsRef.current.delete(String(evt.toolCallId))
+          if (id) {
+            const out = toolResultText(evt.result)
+            const isError = evt.isError === true
+            setRows((prev) => {
+              const next = [...prev]
+              mutateIn(next, id, (r) => ({ ...r, streaming: false, isError, toolResult: cap(out) }))
+              return next
+            })
           }
-          case 'compaction_start':
-            next.push({ id: nextId(), kind: 'notice', text: t('chatCompacting') })
-            break
-          case 'auto_retry_start':
-            next.push({
-              id: nextId(),
+          break
+        }
+        case 'compaction_start': {
+          const id = nextId()
+          setRows((prev) => [...prev, { id, kind: 'notice', text: t('chatCompacting') }])
+          break
+        }
+        case 'auto_retry_start': {
+          const id = nextId()
+          setRows((prev) => [
+            ...prev,
+            {
+              id,
               kind: 'notice',
               text: t('chatRetrying', {
                 attempt: String(evt.attempt ?? ''),
                 max: String(evt.maxAttempts ?? ''),
               }),
-            })
-            break
-          case 'byeppt:error':
-            next.push({ id: nextId(), kind: 'error', text: String(evt.message ?? '') })
-            break
-          case 'byeppt:ui-notify':
-            next.push({
-              id: nextId(),
+            },
+          ])
+          break
+        }
+        case 'byeppt:error': {
+          const id = nextId()
+          setRows((prev) => [...prev, { id, kind: 'error', text: String(evt.message ?? '') }])
+          break
+        }
+        case 'byeppt:ui-notify': {
+          const id = nextId()
+          setRows((prev) => [
+            ...prev,
+            {
+              id,
               kind: evt.level === 'error' ? 'error' : 'notice',
               text: String(evt.message ?? ''),
-            })
-            break
-          default:
-            return prev
+            },
+          ])
+          break
         }
-        return next
-      })
+        default:
+          break
+      }
     })
     return () => {
       offStatus()
@@ -1055,7 +1092,18 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   const canSend = !!(draft.trim() || pending.length)
 
   return (
-    <div className="chat-panel">
+    <div
+      className="chat-panel"
+      onKeyDown={(e) => {
+        // Esc stops the run (Claude Code style) — scoped to the panel so the
+        // slide canvas keeps its own Esc (deselect) behavior; ignore IME
+        // composition cancels
+        if (e.key === 'Escape' && streaming && !e.nativeEvent.isComposing) {
+          e.preventDefault()
+          abort()
+        }
+      }}
+    >
       <div className="chat-header">
         <button
           type="button"

@@ -510,6 +510,13 @@ async function ensureSession(deck: DeckBinding, resumeFile?: string): Promise<Ag
     created.subscribe((event) => {
       try {
         sendToDeck(deckKey, 'agent:event', { ...event, deckKey })
+        // Run started: isStreaming is already true here (the SDK flips it in
+        // runWithLifecycle before emitting agent_start) — the prompt handler's
+        // own push races the async run start and would report a stale false,
+        // leaving the composer's send button in "send" mode for the whole run.
+        if (event?.type === 'agent_start') {
+          void pushStatus(deckKey)
+        }
         // streaming flips back to false here — without this push the panel's
         // send button stays in "stop" mode after a successful run
         if (event?.type === 'agent_end') {
