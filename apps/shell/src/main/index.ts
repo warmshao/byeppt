@@ -183,7 +183,8 @@ function createShellWindow(): void {
     minHeight: 600,
     title: 'ByePPT',
     // dev-mode window/taskbar icon (packaged builds get it from the exe /
-    // electron-builder's build/icon.*); macOS uses the dock icon instead.
+    // electron-builder's build/icon.*); BrowserWindow icons are ignored on
+    // macOS, where the unpackaged Electron runtime needs app.dock.setIcon.
     // Windows gets the .ico so the title bar picks the size-optimised 16/24/32
     // entries instead of downsampling the 1024px PNG (jagged diagonals).
     ...(process.platform === 'darwin' || app.isPackaged
@@ -875,6 +876,13 @@ app.whenReady().then(async () => {
       // best-effort: without the marker the next restart just retries the lock
     }
   }
+
+  // An unpackaged macOS run is Electron.app, not ByePPT.app, so its bundle
+  // icon is Electron's default. BrowserWindow.icon cannot override the Dock
+  // icon on macOS; set the development Dock icon explicitly. Packaged builds
+  // continue to use build/icon.icns from the .app bundle.
+  if (!app.isPackaged && process.platform === 'darwin')
+    app.dock?.setIcon(join(__dirname, '../../build/icon-mac.png'))
 
   void installMainProcessProxy()
   app.setAccessibilitySupportEnabled(true)
