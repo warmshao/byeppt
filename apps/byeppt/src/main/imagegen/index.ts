@@ -70,7 +70,7 @@ export const IMAGE_GEN_PROVIDERS: Record<ImageGenProvider, ImageGenProviderInfo>
     id: 'qwen',
     label: 'Alibaba Qwen',
     defaultModel: 'qwen-image-2.0-pro',
-    models: ['qwen-image-2.0-pro', 'qwen-image-2.0', 'qwen-image'],
+    models: ['qwen-image-2.0-pro', 'qwen-image-3.0-pro', 'qwen-image-2.0', 'qwen-image'],
     defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
     envPrefix: 'QWEN',
   },

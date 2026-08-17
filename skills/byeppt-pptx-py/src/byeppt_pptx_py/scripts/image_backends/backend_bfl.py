@@ -41,12 +41,6 @@ from image_backends.backend_common import (
     retry_delay,
 )
 
-
-VALID_ASPECT_RATIOS = [
-    "1:1", "2:3", "3:2", "3:4", "4:3",
-    "4:5", "5:4", "9:16", "16:9", "21:9",
-]
-
 DEFAULT_BASE_URL = "https://api.bfl.ai"
 DEFAULT_MODEL = "flux-pro-1.1-ultra"
 
@@ -69,31 +63,17 @@ ASPECT_RATIO_TO_DIMENSIONS = {
     "21:9": (1344, 576),
 }
 
-
 def _resolve_request_options(
     aspect_ratio: str,
     image_size: str,
     model: str,
 ) -> tuple[str, str]:
-    """Validate request options and return the normalized model and endpoint."""
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for BFL backend. "
-            f"Supported: {VALID_ASPECT_RATIOS}"
-        )
+    """Pass the configured model through untouched: the endpoint follows BFL's
+    `/v1/<model>` convention, and the server is the authority on what it
+    accepts (client-side whitelists only go stale)."""
     normalized_model = model.strip().lower()
-    endpoint = MODEL_ENDPOINTS.get(normalized_model)
-    if not endpoint:
-        supported = sorted(MODEL_ENDPOINTS)
-        raise ValueError(f"Unsupported BFL model '{model}'. Supported: {supported}")
-    normalized_size = normalize_image_size(image_size)
-    if normalized_size != "1K":
-        raise ValueError(
-            f"BFL model '{normalized_model}' does not expose the unified image_size preset; "
-            f"only the default '1K' is supported, got '{image_size}'."
-        )
+    endpoint = MODEL_ENDPOINTS.get(normalized_model, f"/v1/{normalized_model}")
     return normalized_model, endpoint
-
 
 def _submit_request(url: str, headers: dict, payload: dict) -> dict:
     """Submit a BFL generation request and return the JSON response."""
@@ -101,7 +81,6 @@ def _submit_request(url: str, headers: dict, payload: dict) -> dict:
     if response.status_code != 200:
         raise http_error(response, "BFL generation request")
     return response.json()
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -130,9 +109,11 @@ def _generate_image(api_key: str, prompt: str,
         payload["aspect_ratio"] = aspect_ratio
         payload["raw"] = False
     else:
-        width, height = ASPECT_RATIO_TO_DIMENSIONS[aspect_ratio]
-        payload["width"] = width
-        payload["height"] = height
+        dimensions = ASPECT_RATIO_TO_DIMENSIONS.get(aspect_ratio)
+        if dimensions:
+            payload["width"], payload["height"] = dimensions
+        # unmapped ratio: omit width/height — the server applies its default
+        # or reports what it accepts
 
     url = base_url.rstrip("/") + endpoint
 
@@ -172,7 +153,6 @@ def _generate_image(api_key: str, prompt: str,
 
     path = resolve_output_path(prompt, output_dir, filename, ".png")
     return download_image(image_url, path)
-
 
 def generate(prompt: str,
              aspect_ratio: str = "1:1", image_size: str = "1K",

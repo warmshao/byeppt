@@ -45,7 +45,6 @@ from image_backends.backend_common import (
 
 DEFAULT_ENDPOINT = "https://api.minimaxi.com/v1/image_generation"
 DEFAULT_MODEL = "image-01"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
 
 # International fallback: set MINIMAX_BASE_URL=https://api.minimax.io if needed
 
@@ -84,13 +83,9 @@ ASPECT_RATIO_SIZE_MAP = {
 
 
 def _validate_model(model: str) -> str:
-    """Limit the backend to the model contract implemented below."""
-    resolved = model.strip()
-    if resolved not in SUPPORTED_MODELS:
-        raise ValueError(
-            f"Unsupported MiniMax model '{model}'. Supported: {sorted(SUPPORTED_MODELS)}"
-        )
-    return resolved
+    """Pass the configured model through untouched — the server is the
+    authority on what it supports; client-side whitelists only go stale."""
+    return model.strip()
 
 
 def _resolve_url(base_url: str) -> str:
@@ -109,24 +104,15 @@ def _resolve_url(base_url: str) -> str:
     return base + "/v1/image_generation"
 
 
-def _resolve_dimensions(aspect_ratio: str, image_size: str) -> tuple[int, int]:
-    """Resolve width and height from the unified aspect_ratio/image_size pair."""
+def _resolve_dimensions(aspect_ratio: str, image_size: str) -> tuple[int, int] | None:
+    """Best-effort width/height translation. Returns None when the combination
+    is not in the table — the parameters are then omitted and the server
+    applies its own default (or reports what it accepts)."""
     normalized = normalize_image_size(image_size)
     sizes = ASPECT_RATIO_SIZE_MAP.get(normalized)
     if sizes is None:
-        supported_sizes = ", ".join(ASPECT_RATIO_SIZE_MAP)
-        raise ValueError(
-            f"Unsupported image size '{image_size}' for MiniMax backend. "
-            f"image-01 supports these logical sizes: {supported_sizes}."
-        )
-    dimensions = sizes.get(aspect_ratio)
-    if not dimensions:
-        supported = sorted(sizes)
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for MiniMax backend. "
-            f"Supported: {supported}"
-        )
-    return dimensions
+        return None
+    return sizes.get(aspect_ratio)
 
 
 def _extract_image_bytes(payload: dict) -> bytes | None:
@@ -144,7 +130,7 @@ def _generate_image(api_key: str, prompt: str,
                     model: str = DEFAULT_MODEL, base_url: str = DEFAULT_ENDPOINT) -> str:
     """Generate one image with the MiniMax backend."""
     model = _validate_model(model)
-    width, height = _resolve_dimensions(aspect_ratio, image_size)
+    dimensions = _resolve_dimensions(aspect_ratio, image_size)
     url = _resolve_url(base_url)
 
     headers = {
@@ -154,8 +140,8 @@ def _generate_image(api_key: str, prompt: str,
     payload = {
         "model": model,
         "prompt": prompt,
-        "width": width,
-        "height": height,
+        # omitted when unmapped — the server applies its default or errors
+        **({"width": dimensions[0], "height": dimensions[1]} if dimensions else {}),
         "response_format": "base64",
         "n": 1,
     }
@@ -164,7 +150,8 @@ def _generate_image(api_key: str, prompt: str,
     print(f"  Model:        {model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Aspect Ratio: {aspect_ratio}")
-    print(f"  Resolution:   {width}x{height} (from image_size={image_size})")
+    resolution = f"{dimensions[0]}x{dimensions[1]} (from image_size={image_size})" if dimensions else "server default"
+    print(f"  Resolution:   {resolution}")
     print()
     print("  [..] Generating...", end="", flush=True)
     start = time.time()
@@ -195,9 +182,7 @@ def generate(prompt: str,
              model: str = None, max_retries: int = MAX_RETRIES) -> str:
     """Generate an image with retries using the MiniMax backend."""
     resolved_model = model or os.environ.get("MINIMAX_MODEL") or DEFAULT_MODEL
-    _validate_model(resolved_model)
     normalized_size = normalize_image_size(image_size)
-    _resolve_dimensions(aspect_ratio, normalized_size)
     api_key = require_api_key(
         "MINIMAX_API_KEY",
         message="No API key found. Set MINIMAX_API_KEY in the current environment or a .env file.",

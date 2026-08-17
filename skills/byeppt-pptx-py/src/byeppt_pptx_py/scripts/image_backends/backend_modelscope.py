@@ -74,14 +74,9 @@ def _resolve_size(aspect_ratio: str, image_size: str) -> str:
         image_size (str): The logical size preset. Supported values: '512px', '1K', '2K', '4K'.
     """
     normalized = normalize_image_size(image_size)
-    size = (ASPECT_RATIO_SIZE_MAP.get(normalized) or {}).get(aspect_ratio)
-    if not size:
-        supported = sorted(ASPECT_RATIO_SIZE_MAP["1K"])
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for ModelScope backend. "
-            f"Supported: {supported}"
-        )
-    return size
+    # Best-effort translation; None = omit the size and let the server apply
+    # its own default (or report what it accepts).
+    return (ASPECT_RATIO_SIZE_MAP.get(normalized) or {}).get(aspect_ratio)
 
 
 def _resolve_model(model: str = None) -> str:
@@ -116,7 +111,8 @@ def _generate_image(api_key: str, prompt: str,
     payload = {
         "model": resolved_model,
         "prompt": prompt,
-        "size": size.replace("*", "x"),
+        # omitted when unmapped — the server applies its default or errors
+        **({"size": size.replace("*", "x")} if size else {}),
 
     }
 
@@ -124,7 +120,7 @@ def _generate_image(api_key: str, prompt: str,
     print(f"  Model:        {resolved_model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Aspect Ratio: {aspect_ratio}")
-    print(f"  Resolution:   {size}")
+    print(f"  Resolution:   {(size or 'server default').replace('*', 'x')}")
     print()
     print("  [..] Generating...", end="", flush=True)
     start = time.time()
@@ -153,7 +149,6 @@ def generate(prompt: str,
     """Generate an image with retries using the ModelScope backend."""
     resolved_model = _resolve_model(model)
     normalized_size = normalize_image_size(image_size)
-    _resolve_size(aspect_ratio, normalized_size)
     api_key = require_api_key(
         "MODELSCOPE_API_KEY",
         message="No API key found. Set MODELSCOPE_API_KEY in the current environment or the project-root .env.",

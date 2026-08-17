@@ -40,12 +40,6 @@ from image_backends.backend_common import (
     retry_delay,
 )
 
-
-VALID_ASPECT_RATIOS = [
-    "1:1", "2:3", "3:2", "4:5", "5:4",
-    "9:16", "16:9", "9:21", "21:9",
-]
-
 DEFAULT_BASE_URL = "https://api.stability.ai"
 DEFAULT_MODEL = "stable-image-core"
 
@@ -56,35 +50,20 @@ MODEL_ENDPOINTS = {
     "stable-image-ultra": "/v2beta/stable-image/generate/ultra",
 }
 
-
 def _validate_request_options(aspect_ratio: str, image_size: str) -> None:
-    """Validate unified request options before any retryable work."""
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for Stability backend. "
-            f"Supported: {VALID_ASPECT_RATIOS}"
-        )
-    normalized_size = normalize_image_size(image_size)
-    if normalized_size != "1K":
-        raise ValueError(
-            "Stability Core and Ultra generation only support the default '1K' preset; "
-            f"got '{image_size}'. Use a Stability upscale endpoint for larger output."
-        )
-
+    """No client-side option whitelists — the request is sent as configured
+    and the server reports what it accepts."""
 
 def _resolve_endpoint(model: str | None, base_url: str) -> tuple[str, str]:
-    """Resolve the Stability model alias and endpoint URL."""
-    resolved_model = model or DEFAULT_MODEL
-
+    """Resolve the Stability endpoint URL. Unknown models follow the
+    `/v2beta/stable-image/generate/<model>` convention; the server is the
+    authority on what it supports."""
+    resolved_model = (model or DEFAULT_MODEL).strip()
     normalized_model = resolved_model.lower()
-    endpoint = MODEL_ENDPOINTS.get(normalized_model)
-    if not endpoint:
-        supported = sorted(MODEL_ENDPOINTS)
-        raise ValueError(
-            f"Unsupported Stability model '{resolved_model}'. Supported aliases: {supported}"
-        )
+    endpoint = MODEL_ENDPOINTS.get(
+        normalized_model, f"/v2beta/stable-image/generate/{normalized_model}"
+    )
     return normalized_model, base_url.rstrip("/") + endpoint
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -132,7 +111,6 @@ def _generate_image(api_key: str, prompt: str,
     print(f"  File saved to: {path}")
     report_resolution(path)
     return path
-
 
 def generate(prompt: str,
              aspect_ratio: str = "1:1", image_size: str = "1K",

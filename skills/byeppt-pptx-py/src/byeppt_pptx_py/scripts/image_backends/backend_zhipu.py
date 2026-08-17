@@ -43,7 +43,6 @@ from image_backends.backend_common import (
 
 DEFAULT_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/images/generations"
 DEFAULT_MODEL = "glm-image"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
 
 ASPECT_RATIO_SIZE_MAP = {
     "1K": {
@@ -74,13 +73,9 @@ ASPECT_RATIO_SIZE_MAP = {
 
 
 def _validate_model(model: str) -> str:
-    """Limit the backend to the GLM-Image contract implemented below."""
-    resolved = model.strip()
-    if resolved not in SUPPORTED_MODELS:
-        raise ValueError(
-            f"Unsupported Zhipu model '{model}'. Supported: {sorted(SUPPORTED_MODELS)}"
-        )
-    return resolved
+    """Pass the configured model through untouched — the server is the
+    authority on what it supports; client-side whitelists only go stale."""
+    return model.strip()
 
 
 def _resolve_url(base_url: str) -> str:
@@ -91,24 +86,15 @@ def _resolve_url(base_url: str) -> str:
     return base + "/api/paas/v4/images/generations"
 
 
-def _resolve_size(aspect_ratio: str, image_size: str) -> str:
-    """Resolve the target resolution for a ratio and logical size preset."""
+def _resolve_size(aspect_ratio: str, image_size: str) -> str | None:
+    """Best-effort translation to the API's pixel size. Returns None when the
+    combination is not in the table — the parameter is then omitted and the
+    server applies its own default (or reports what it accepts)."""
     normalized = normalize_image_size(image_size)
     sizes = ASPECT_RATIO_SIZE_MAP.get(normalized)
     if sizes is None:
-        supported_sizes = ", ".join(ASPECT_RATIO_SIZE_MAP)
-        raise ValueError(
-            f"Unsupported image size '{image_size}' for Zhipu backend. "
-            f"GLM-Image supports these logical sizes: {supported_sizes}."
-        )
-    size = sizes.get(aspect_ratio)
-    if not size:
-        supported = sorted(sizes)
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for Zhipu backend. "
-            f"Supported: {supported}"
-        )
-    return size
+        return None
+    return sizes.get(aspect_ratio)
 
 
 def _generate_image(api_key: str, prompt: str,
@@ -127,14 +113,15 @@ def _generate_image(api_key: str, prompt: str,
     payload = {
         "model": model,
         "prompt": prompt,
-        "size": size,
+        # omitted when unmapped — the server applies its default or errors
+        **({"size": size} if size else {}),
     }
 
     print("[Zhipu GLM-Image]")
     print(f"  Model:        {model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Aspect Ratio: {aspect_ratio}")
-    print(f"  Resolution:   {size}")
+    print(f"  Resolution:   {size or 'server default'}")
     print()
     print("  [..] Generating...", end="", flush=True)
     start = time.time()
@@ -161,9 +148,7 @@ def generate(prompt: str,
              model: str = None, max_retries: int = MAX_RETRIES) -> str:
     """Generate an image with retries using the Zhipu backend."""
     resolved_model = model or os.environ.get("ZHIPU_MODEL") or DEFAULT_MODEL
-    _validate_model(resolved_model)
     normalized_size = normalize_image_size(image_size)
-    _resolve_size(aspect_ratio, normalized_size)
     api_key = require_api_key(
         "ZHIPU_API_KEY",
         "BIGMODEL_API_KEY",

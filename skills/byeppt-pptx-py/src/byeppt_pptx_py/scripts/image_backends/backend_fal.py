@@ -40,14 +40,8 @@ from image_backends.backend_common import (
     retry_delay,
 )
 
-
-VALID_ASPECT_RATIOS = [
-    "1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1",
-    "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9",
-]
 DEFAULT_ENDPOINT = "https://fal.run"
 DEFAULT_MODEL = "fal-ai/nano-banana-2"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
 
 IMAGE_SIZE_TO_RESOLUTION = {
     "512px": "0.5K",
@@ -56,32 +50,15 @@ IMAGE_SIZE_TO_RESOLUTION = {
     "4K": "4K",
 }
 
-
 def _resolve_request_options(
     aspect_ratio: str,
     image_size: str,
     model: str,
-) -> tuple[str, str]:
-    """Validate request options and return normalized model and resolution values."""
-    resolved_model = model.strip()
-    if resolved_model not in SUPPORTED_MODELS:
-        raise ValueError(
-            f"Unsupported fal model '{model}'. Supported: {sorted(SUPPORTED_MODELS)}"
-        )
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for fal backend. "
-            f"Supported: {VALID_ASPECT_RATIOS}"
-        )
-    normalized_size = normalize_image_size(image_size)
-    resolution = IMAGE_SIZE_TO_RESOLUTION.get(normalized_size)
-    if not resolution:
-        raise ValueError(
-            f"Unsupported image size '{image_size}' for fal backend. "
-            f"Supported: {list(IMAGE_SIZE_TO_RESOLUTION)}"
-        )
-    return resolved_model, resolution
-
+) -> tuple[str, str | None]:
+    """Pass the configured model/ratio through untouched; translate the size
+    preset when known (None = omit, the server applies its default or errors)."""
+    resolution = IMAGE_SIZE_TO_RESOLUTION.get(normalize_image_size(image_size))
+    return model.strip(), resolution
 
 def _resolve_url(base_url: str, model: str) -> str:
     """Resolve the full fal endpoint URL for a model."""
@@ -89,7 +66,6 @@ def _resolve_url(base_url: str, model: str) -> str:
     if base.endswith(model):
         return base
     return f"{base}/{model}"
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -107,14 +83,15 @@ def _generate_image(api_key: str, prompt: str,
         "prompt": prompt,
         "aspect_ratio": aspect_ratio,
         "num_images": 1,
-        "resolution": resolution,
+        # omitted when unmapped — the server applies its default or errors
+        **({"resolution": resolution} if resolution else {}),
     }
 
     print("[fal.ai]")
     print(f"  Model:        {model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Aspect Ratio: {aspect_ratio}")
-    print(f"  Resolution:   {resolution}")
+    print(f"  Resolution:   {resolution or 'server default'}")
     print()
     print("  [..] Generating...", end="", flush=True)
     start = time.time()
@@ -133,7 +110,6 @@ def _generate_image(api_key: str, prompt: str,
 
     path = resolve_output_path(prompt, output_dir, filename, ".png")
     return download_image(image_url, path)
-
 
 def generate(prompt: str,
              aspect_ratio: str = "1:1", image_size: str = "1K",

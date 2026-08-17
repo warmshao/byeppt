@@ -41,12 +41,8 @@ from image_backends.backend_common import (
     retry_delay,
 )
 
-
-VALID_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:4", "4:3", "3:2", "2:3", "4:5", "5:4", "21:9"]
 DEFAULT_BASE_URL = "https://api.replicate.com/v1"
 DEFAULT_MODEL = "black-forest-labs/flux-1.1-pro"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
-
 
 def _split_model(model: str) -> tuple[str, str]:
     """Split a Replicate model reference into owner and name."""
@@ -57,31 +53,15 @@ def _split_model(model: str) -> tuple[str, str]:
         )
     return parts[0], parts[1]
 
-
 def _resolve_request_options(
     aspect_ratio: str,
     image_size: str,
     model: str,
 ) -> tuple[str, str]:
-    """Validate request options and return the Replicate model path."""
-    resolved_model = model.strip()
-    if resolved_model not in SUPPORTED_MODELS:
-        raise ValueError(
-            f"Unsupported Replicate model '{model}'. Supported: {sorted(SUPPORTED_MODELS)}"
-        )
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for Replicate backend. "
-            f"Supported: {VALID_ASPECT_RATIOS}"
-        )
-    normalized_size = normalize_image_size(image_size)
-    if normalized_size != "1K":
-        raise ValueError(
-            "Replicate FLUX 1.1 Pro does not expose the unified image_size preset; "
-            f"only the default '1K' is supported, got '{image_size}'."
-        )
-    return _split_model(resolved_model)
-
+    """Pass the configured model through untouched — only the owner/name split
+    is structural (the model path is part of the request URL). Aspect ratio is
+    sent raw; the server is the authority on what it accepts."""
+    return _split_model(model)
 
 def _extract_output_url(payload: dict) -> str | None:
     """Extract an output URL from a Replicate prediction payload."""
@@ -97,7 +77,6 @@ def _extract_output_url(payload: dict) -> str | None:
     if isinstance(output, dict):
         return output.get("url")
     return None
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -160,7 +139,6 @@ def _generate_image(api_key: str, prompt: str,
 
     path = resolve_output_path(prompt, output_dir, filename, ".png")
     return download_image(image_url, path)
-
 
 def generate(prompt: str,
              aspect_ratio: str = "1:1", image_size: str = "1K",

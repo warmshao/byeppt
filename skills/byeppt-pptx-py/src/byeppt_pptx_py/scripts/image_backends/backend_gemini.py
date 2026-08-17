@@ -49,25 +49,7 @@ from image_backends.backend_common import (
 # ║  Constants                                                      ║
 # ╚═══════════��═════════════════════════════��════════════════════════╝
 
-VALID_ASPECT_RATIOS = [
-    "1:1", "1:4", "1:8",
-    "2:3", "3:2", "3:4", "4:1", "4:3",
-    "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"
-]
-
-VALID_IMAGE_SIZES = ["512px", "1K", "2K", "4K"]
-
 DEFAULT_MODEL = "gemini-3.1-flash-image"
-
-GEMINI_2_5_FLASH_IMAGE_MODELS = {
-    "gemini-2.5-flash-image",
-    "gemini-2.5-flash-image-preview",
-}
-GEMINI_2_5_VALID_ASPECT_RATIOS = [
-    "1:1", "2:3", "3:2", "3:4", "4:3",
-    "4:5", "5:4", "9:16", "16:9", "21:9",
-]
-GEMINI_2_5_VALID_IMAGE_SIZES = ["1K"]
 
 MINIMAL_THINKING_MODELS = {
     "gemini-3.1-flash-image",
@@ -83,22 +65,6 @@ def _model_id(model: str) -> str:
 def _request_image_size(image_size: str) -> str:
     """Map the public 512px preset to Gemini's API value."""
     return "512" if image_size == "512px" else image_size
-
-
-def _validate_model_options(model: str, aspect_ratio: str, image_size: str) -> None:
-    """Enforce limits only for Gemini models with a known narrower contract."""
-    if _model_id(model) not in GEMINI_2_5_FLASH_IMAGE_MODELS:
-        return
-    if aspect_ratio not in GEMINI_2_5_VALID_ASPECT_RATIOS:
-        raise ValueError(
-            f"Invalid aspect ratio '{aspect_ratio}' for {model}. "
-            f"Valid: {GEMINI_2_5_VALID_ASPECT_RATIOS}"
-        )
-    if image_size not in GEMINI_2_5_VALID_IMAGE_SIZES:
-        raise ValueError(
-            f"Invalid image size '{image_size}' for {model}. "
-            f"Valid: {GEMINI_2_5_VALID_IMAGE_SIZES}"
-        )
 
 
 # ╔══════���═══════════════════════════════════════════════��═══════════╗
@@ -246,13 +212,9 @@ def generate(prompt: str,
 
     image_size = normalize_image_size(image_size)
 
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(f"Invalid aspect ratio '{aspect_ratio}'. Valid: {VALID_ASPECT_RATIOS}")
-
-    if image_size not in VALID_IMAGE_SIZES:
-        raise ValueError(f"Invalid image size '{image_size}'. Valid: {VALID_IMAGE_SIZES}")
-
-    _validate_model_options(model, aspect_ratio, image_size)
+    # No client-side option whitelists: the configured model/ratio/size are
+    # sent as-is and the server reports what it accepts (the Gemini image
+    # config takes the raw strings, so there is nothing to translate here).
 
     last_error = None
     for attempt in range(max_retries + 1):

@@ -43,7 +43,6 @@ from image_backends.backend_common import (
 
 DEFAULT_ENDPOINT = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 DEFAULT_MODEL = "qwen-image-2.0-pro"
-SUPPORTED_MODELS = {DEFAULT_MODEL}
 
 ASPECT_RATIO_SIZE_MAP = {
     "512px": {
@@ -86,13 +85,9 @@ ASPECT_RATIO_SIZE_MAP = {
 
 
 def _validate_model(model: str) -> str:
-    """Limit the backend to the model contract implemented below."""
-    resolved = model.strip()
-    if resolved not in SUPPORTED_MODELS:
-        raise ValueError(
-            f"Unsupported Qwen model '{model}'. Supported: {sorted(SUPPORTED_MODELS)}"
-        )
-    return resolved
+    """Pass the configured model through untouched — the server is the
+    authority on what it supports; client-side whitelists only go stale."""
+    return model.strip()
 
 
 def _resolve_url(base_url: str) -> str:
@@ -105,24 +100,15 @@ def _resolve_url(base_url: str) -> str:
     return base + "/api/v1/services/aigc/multimodal-generation/generation"
 
 
-def _resolve_size(aspect_ratio: str, image_size: str) -> str:
-    """Resolve the target resolution for a ratio and logical size preset."""
+def _resolve_size(aspect_ratio: str, image_size: str) -> str | None:
+    """Best-effort translation to the API's `W*H` size. Returns None when the
+    combination is not in the table — the parameter is then omitted and the
+    server applies its own default (or reports what it accepts)."""
     normalized = normalize_image_size(image_size)
     sizes = ASPECT_RATIO_SIZE_MAP.get(normalized)
     if sizes is None:
-        supported_sizes = ", ".join(ASPECT_RATIO_SIZE_MAP)
-        raise ValueError(
-            f"Unsupported image size '{image_size}' for Qwen backend. "
-            f"qwen-image-2.0-pro supports these logical sizes: {supported_sizes}."
-        )
-    size = sizes.get(aspect_ratio)
-    if not size:
-        supported = sorted(sizes)
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for Qwen backend. "
-            f"Supported: {supported}"
-        )
-    return size
+        return None
+    return sizes.get(aspect_ratio)
 
 
 def _generate_image(api_key: str, prompt: str,
@@ -148,7 +134,9 @@ def _generate_image(api_key: str, prompt: str,
             ]
         },
         "parameters": {
-            "size": size,
+            # omitted when the ratio/size combo is not in the local table —
+            # the server then applies its own default or says what it accepts
+            **({"size": size} if size else {}),
             "prompt_extend": True,
             "watermark": False,
         },
@@ -158,7 +146,7 @@ def _generate_image(api_key: str, prompt: str,
     print(f"  Model:        {model}")
     print(f"  Prompt:       {prompt[:120]}{'...' if len(prompt) > 120 else ''}")
     print(f"  Aspect Ratio: {aspect_ratio}")
-    print(f"  Resolution:   {size}")
+    print(f"  Resolution:   {size or 'server default'}")
     print()
     print("  [..] Generating...", end="", flush=True)
     start = time.time()
@@ -186,9 +174,7 @@ def generate(prompt: str,
              model: str = None, max_retries: int = MAX_RETRIES) -> str:
     """Generate an image with retries using the Qwen backend."""
     resolved_model = model or os.environ.get("QWEN_MODEL") or DEFAULT_MODEL
-    _validate_model(resolved_model)
     normalized_size = normalize_image_size(image_size)
-    _resolve_size(aspect_ratio, normalized_size)
     api_key = require_api_key(
         "QWEN_API_KEY",
         "DASHSCOPE_API_KEY",

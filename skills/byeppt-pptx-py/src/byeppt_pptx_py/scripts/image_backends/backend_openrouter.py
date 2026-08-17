@@ -41,18 +41,9 @@ from image_backends.backend_common import (
     save_image_bytes,
 )
 
-
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Constants                                                      ║
 # ╚══════════════════════════════════════════════════════════════════╝
-
-VALID_ASPECT_RATIOS = [
-    "1:1", "1:4", "1:8",
-    "2:3", "3:2", "3:4", "4:1", "4:3",
-    "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"
-]
-
-VALID_IMAGE_SIZES = ["512px", "1K", "2K", "4K"]
 
 DEFAULT_MODEL = "google/gemini-3.1-flash-image"
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1"
@@ -81,7 +72,6 @@ def _message_image_uri(message: dict) -> str | None:
             return url
 
     return find_data_uri(message.get("content"))
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -158,7 +148,6 @@ def _generate_image(api_key: str, prompt: str,
 
     raise RuntimeError("No image was generated. The server may have refused the request.")
 
-
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  Public Entry Point                                             ║
 # ╚══════════════════════════════════════════════════════════════════╝
@@ -188,11 +177,8 @@ def generate(prompt: str,
 
     image_size = normalize_image_size(image_size)
 
-    if aspect_ratio not in VALID_ASPECT_RATIOS:
-        raise ValueError(f"Invalid aspect ratio '{aspect_ratio}'. Valid: {VALID_ASPECT_RATIOS}")
-
-    if image_size not in VALID_IMAGE_SIZES:
-        raise ValueError(f"Invalid image size '{image_size}'. Valid: {VALID_IMAGE_SIZES}")
+    # No client-side option whitelists: the configured model/ratio/size are
+    # sent as-is and the server reports what it accepts.
 
     last_error = None
     for attempt in range(max_retries + 1):

@@ -40,7 +40,6 @@ from image_backends.backend_common import (
     retry_delay,
 )
 
-
 ASPECT_RATIO_MAP = {
     "1:1": "1x1",
     "1:2": "1x2",
@@ -61,36 +60,20 @@ ASPECT_RATIO_MAP = {
 
 DEFAULT_BASE_URL = "https://api.ideogram.ai"
 DEFAULT_MODEL = "ideogram-v3"
-MODEL_ALIASES = {"ideogram-v3", "v3"}
 
 DEFAULT_RENDERING_SPEED = "DEFAULT"
-
 
 def _resolve_request_options(
     aspect_ratio: str,
     image_size: str,
     model: str,
 ) -> tuple[str, str]:
-    """Validate request options and return normalized model and ratio values."""
+    """Pass the configured model through untouched; translate the aspect ratio
+    to the API's `WxH` form when in the table (otherwise send it raw) — the
+    server is the authority on what it accepts."""
     normalized_model = model.strip().lower()
-    if normalized_model not in MODEL_ALIASES:
-        raise ValueError(
-            f"Unsupported Ideogram model '{model}'. Supported: {sorted(MODEL_ALIASES)}"
-        )
-    mapped_ratio = ASPECT_RATIO_MAP.get(aspect_ratio)
-    if not mapped_ratio:
-        raise ValueError(
-            f"Unsupported aspect ratio '{aspect_ratio}' for Ideogram backend. "
-            f"Supported: {sorted(ASPECT_RATIO_MAP)}"
-        )
-    normalized_size = normalize_image_size(image_size)
-    if normalized_size != "1K":
-        raise ValueError(
-            "Ideogram V3 aspect-ratio generation only supports the default '1K' preset; "
-            f"got '{image_size}'."
-        )
+    mapped_ratio = ASPECT_RATIO_MAP.get(aspect_ratio, aspect_ratio.replace(":", "x"))
     return normalized_model, mapped_ratio
-
 
 def _resolve_url(base_url: str) -> str:
     """Resolve the Ideogram generation endpoint."""
@@ -98,7 +81,6 @@ def _resolve_url(base_url: str) -> str:
     if base.endswith("/generate"):
         return base
     return base + "/v1/ideogram-v3/generate"
-
 
 def _generate_image(api_key: str, prompt: str,
                     aspect_ratio: str = "1:1", image_size: str = "1K",
@@ -142,7 +124,6 @@ def _generate_image(api_key: str, prompt: str,
 
     path = resolve_output_path(prompt, output_dir, filename, ".png")
     return download_image(image_url, path)
-
 
 def generate(prompt: str,
              aspect_ratio: str = "1:1", image_size: str = "1K",
