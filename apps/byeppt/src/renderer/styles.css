@@ -7713,6 +7713,10 @@ body.show-curtain::after {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md-link:hover {
+  color: var(--accent-dark);
 }
 .md-h1 {
   font-size: 15px;

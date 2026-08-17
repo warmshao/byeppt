@@ -1,7 +1,7 @@
 /**
  * Markdown-lite renderer for assistant messages in the chat panel.
  * Supports the subset an agent actually emits: fenced code blocks, inline code,
- * bold/italic/strikethrough, links (styled, non-navigating), headings,
+ * bold/italic/strikethrough, links (open in the system browser), headings,
  * blockquotes, GFM tables, bullet/numbered lists, and paragraphs.
  * Deliberately tiny — the panel is a sidebar, not a document viewer.
  *
@@ -37,10 +37,18 @@ function renderInline(text: string): ReactNode[] {
         </code>,
       )
     } else if (m[2] != null) {
-      // links render as accent text, never <a>: an <a> click would navigate the
-      // chat panel itself (no openExternal bridge in the preload)
+      // window.open is intercepted by the main-process setWindowOpenHandler,
+      // which denies the in-app window and re-opens the URL via
+      // shell.openExternal after safeExternalUrl validation.
+      const href = m[3]!
       out.push(
-        <span key={k()} className="md-link" data-tip={m[3]}>
+        <span
+          key={k()}
+          className="md-link"
+          data-tip={href}
+          role="link"
+          onClick={() => window.open(href, '_blank', 'noopener')}
+        >
           {m[2]}
         </span>,
       )
