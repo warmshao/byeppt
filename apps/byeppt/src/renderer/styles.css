@@ -7587,6 +7587,14 @@ body.show-curtain::after {
   flex-direction: column;
   gap: 10px;
 }
+/* A scrollable flex column shrinks children to fit the container once content
+   exceeds its height. Text rows resist (min-height:auto = content), but any
+   child with overflow:hidden (.tool-card) has an automatic minimum of 0 and
+   gets squished into a 2px sliver — the "thin lines where tool cards were".
+   Nothing in the list may shrink; overflow is what the scrollbar is for. */
+.chat-list > * {
+  flex-shrink: 0;
+}
 .chat-row {
   font-size: 13px;
   line-height: 1.55;
@@ -7661,9 +7669,50 @@ body.show-curtain::after {
   font-weight: 600;
   margin: 10px 0 6px;
 }
-.md-hr {
-  border-top: 1px solid var(--border-subtle);
-  margin: 2px 0 8px;
+.md-table-wrap {
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+.md-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  max-width: 100%;
+}
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  vertical-align: top;
+}
+.md-table th {
+  background: var(--surface-subtle);
+  font-weight: 600;
+}
+.md-ta-l {
+  text-align: left;
+}
+.md-ta-c {
+  text-align: center;
+}
+.md-ta-r {
+  text-align: right;
+}
+.md-quote {
+  margin: 0 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.md-quote > p {
+  margin: 0 0 4px;
+}
+.md-quote > p:last-child {
+  margin-bottom: 0;
+}
+.md-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .md-h1 {
   font-size: 15px;

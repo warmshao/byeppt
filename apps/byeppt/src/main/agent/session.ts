@@ -312,9 +312,90 @@ function pickModel(reg: ModelRegistry): ReturnType<ModelRegistry['getAvailable']
   return undefined
 }
 
+/** deckKey → auto-naming already attempted for its live session */
+const namingAttempted = new Set<string>()
+
+/** text of a session message (string content or text blocks) */
+function sessionMessageText(m: { content?: unknown } | undefined): string {
+  const c = m?.content
+  if (typeof c === 'string') return c
+  if (!Array.isArray(c)) return ''
+  return (c as Array<{ type?: string; text?: unknown }>)
+    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+    .map((b) => String(b.text))
+    .join('')
+}
+
+/**
+ * Claude-Code-style session titling: after a session's first run, ask the model
+ * for a one-line title and store it as the session name (a SessionManager
+ * session_info entry — the history popover lists it via SessionManager.list).
+ * Falls back to the truncated first user message. Never throws.
+ */
+async function maybeNameSession(deckKey: string, s: AgentSession): Promise<void> {
+  if (namingAttempted.has(deckKey)) return
+  namingAttempted.add(deckKey)
+  try {
+    if (s.sessionName) return
+    const firstUser = (s.messages as Array<{ role?: string; content?: unknown }>).find(
+      (m) => m?.role === 'user',
+    )
+    const raw = sessionMessageText(firstUser)
+      // the composer appends an attachment-path trailer to the wire prompt
+      .replace(/\n*The user attached these files for this turn[\s\S]*$/, '')
+      .trim()
+    if (!raw) return
+    let title = ''
+    const stores = await ensureStores()
+    const model = s.model
+    const apiKey = stores && model ? await stores.authStorage.getApiKey(model.provider) : undefined
+    if (model && apiKey) {
+      try {
+        // ESM-only sibling of @warmshao/vsurf (same release); dynamic import
+        // like loadSdk so the CJS main bundle can reach it
+        const { completeSimple } = await import('vsurf-ai')
+        const res = await completeSimple(
+          model,
+          {
+            systemPrompt:
+              "You title chat sessions. Reply with ONLY a very short title (max 8 words) capturing the user's request, in the user's language. No quotes, no trailing punctuation.",
+            messages: [
+              {
+                role: 'user',
+                content: [{ type: 'text', text: raw.slice(0, 2000) }],
+                timestamp: Date.now(),
+              },
+            ],
+          },
+          { apiKey, maxTokens: 100 },
+        )
+        if (res.stopReason !== 'error') {
+          title = res.content
+            .filter((c) => c.type === 'text')
+            .map((c) => c.text)
+            .join(' ')
+        }
+      } catch (err) {
+        console.warn('[agent] session title generation failed:', err)
+      }
+    }
+    title = title
+      .split('\n')[0]!
+      .trim()
+      .replace(/^["'`*#\s]+|["'`*。\s]+$/g, '')
+    if (!title) title = raw.split('\n')[0]!.trim()
+    if (title.length > 40) title = `${title.slice(0, 40)}…`
+    if (title) s.setSessionName(title)
+  } catch (err) {
+    console.warn('[agent] maybeNameSession failed:', err)
+  }
+}
+
 /** Dispose a deck's live session (if any): decline its UI waiters, release the kernel. */
 async function disposeDeck(deckKey: string): Promise<void> {
   declineAllUiRequests(deckKey)
+  // a later session for this deck must get its own naming attempt
+  namingAttempted.delete(deckKey)
   const cur = live.get(deckKey)
   if (!cur) return
   live.delete(deckKey)
@@ -431,7 +512,11 @@ async function ensureSession(deck: DeckBinding, resumeFile?: string): Promise<Ag
         sendToDeck(deckKey, 'agent:event', { ...event, deckKey })
         // streaming flips back to false here — without this push the panel's
         // send button stays in "stop" mode after a successful run
-        if (event?.type === 'agent_end') void pushStatus(deckKey)
+        if (event?.type === 'agent_end') {
+          void pushStatus(deckKey)
+          // first run done → auto-title the session for the history list
+          void maybeNameSession(deckKey, created)
+        }
       } catch (err) {
         console.warn('[agent] failed to forward event', event?.type, err)
       }

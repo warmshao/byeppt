@@ -33,7 +33,7 @@ interface EchoAttachment {
   previewUrl?: string
 }
 
-interface ChatRow {
+export interface ChatRow {
   id: string
   kind: 'user' | 'assistant' | 'tool' | 'error' | 'notice' | 'nomodel'
   text: string
@@ -105,7 +105,7 @@ const cap = (s: string) => (s.length > DISPLAY_CAP ? `${s.slice(0, DISPLAY_CAP)}
  * from assistant content blocks (toolCall) matched with the following
  * toolResult messages; everything renders settled (no streaming).
  */
-function messagesToRows(messages: unknown[]): ChatRow[] {
+export function messagesToRows(messages: unknown[]): ChatRow[] {
   const rows: ChatRow[] = []
   const toolRowByCallId = new Map<string, string>()
   for (const m of messages) {
@@ -282,7 +282,7 @@ function FileChip({
 
 // ── Tool card ───────────────────────────────────────────────────────────────
 
-function ToolCard({ row }: { row: ChatRow }) {
+export function ToolCard({ row }: { row: ChatRow }) {
   // runs expanded, collapses on completion (Claude Code style)
   const [open, setOpen] = useState(true)
   const doneRef = useRef(false)
