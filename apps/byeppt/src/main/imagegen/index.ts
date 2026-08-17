@@ -2,8 +2,8 @@
  * Image generation service (Phase 4): thin multi-provider layer.
  * OpenAI (gpt-image series) goes through the Vercel AI SDK
  * (`@ai-sdk/openai` + `ai`'s generateImage) for text-to-image AND editing;
- * Gemini ("banana" series) uses the modern Interactions API directly
- * (its SDK path would fall back to the deprecated generateContent).
+ * Gemini ("banana" series) calls the Generative Language `generateContent`
+ * endpoint directly — the only Gemini path OpenAI-style relays proxy.
  *
  * Each backend is configured independently in Settings → 图片生成: its own API
  * key (vsurf AuthStorage under `imagegen-<id>`, NOT shared with the LLM
@@ -187,9 +187,13 @@ export async function testImageGenConnection(
   const cfg = resolveImageGenConfig(provider)
   try {
     if (provider === 'gemini') {
+      // A minimal generateContent ping: relays (new-api etc.) implement only
+      // this endpoint — model metadata reads and the Interactions API 404.
       const base = (cfg.baseUrl || process.env.GEMINI_BASE_URL || IMAGE_GEN_PROVIDERS.gemini.defaultBaseUrl).replace(/\/$/, '')
-      const resp = await fetch(`${base}/v1beta/models/${encodeURIComponent(cfg.model)}`, {
-        headers: { 'x-goog-api-key': apiKey },
+      const resp = await fetch(`${base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
       })
       if (!resp.ok) throw new Error(`gemini ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
     } else {

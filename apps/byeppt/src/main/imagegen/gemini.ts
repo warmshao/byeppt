@@ -1,9 +1,12 @@
 /**
  * Gemini image generation ("banana" series: gemini-2.5-flash-image,
  * gemini-3-pro-image, gemini-3.1-flash-image, gemini-3.1-flash-lite-image,
- * ...) via the Generative Language Interactions API (`POST /v1beta/interactions`
- * with `response_format`). This is the officially recommended path for image
- * generation — the legacy `generateContent` + `imageConfig` field is deprecated.
+ * ...) via the Generative Language `generateContent` API
+ * (`POST /v1beta/models/<model>:generateContent` with
+ * `generationConfig.responseModalities = ['IMAGE']`). We deliberately use this
+ * endpoint instead of the newer Interactions API (`/v1beta/interactions`):
+ * OpenAI-style relays (new-api etc.) only proxy `generateContent` and answer
+ * every other path with a 404 "Invalid URL" error.
  * `baseUrl` (settings) overrides the endpoint, then GEMINI_BASE_URL (relays),
  * then the official endpoint.
  *
@@ -16,12 +19,9 @@ import { loadInlineData } from './load-image'
 
 const DEFAULT_BASE = 'https://generativelanguage.googleapis.com'
 
-/** A single Interactions API input part (text or inline image). */
-interface InteractionInputPart {
-  type: 'text' | 'image'
+interface GenerateContentPart {
   text?: string
-  data?: string
-  mime_type?: string
+  inlineData?: { mimeType: string; data: string }
 }
 
 export async function generateGeminiImage(
@@ -30,23 +30,22 @@ export async function generateGeminiImage(
   const apiKey = await imageGenApiKey('gemini')
   if (!apiKey) throw new Error('no-api-key: configure a Gemini API key in Settings first')
 
-  const input: InteractionInputPart[] = [{ type: 'text', text: req.prompt }]
+  const parts: GenerateContentPart[] = [{ text: req.prompt }]
   for (const ref of req.referenceImages ?? []) {
     const inline = await loadInlineData(ref)
-    if (inline) input.push({ type: 'image', data: inline.data, mime_type: inline.mimeType })
+    if (inline) parts.push({ inlineData: { mimeType: inline.mimeType, data: inline.data } })
   }
 
   const base = (req.baseUrl || process.env.GEMINI_BASE_URL || DEFAULT_BASE).replace(/\/$/, '')
-  const url = `${base}/v1beta/interactions`
-  const responseFormat: Record<string, string> = { type: 'image', mime_type: 'image/png' }
+  const url = `${base}/v1beta/models/${encodeURIComponent(req.model)}:generateContent`
+  const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] }
   if (req.size) {
     // banana models accept an aspect ratio hint, e.g. "16:9"
-    responseFormat.aspect_ratio = req.size
+    generationConfig.imageConfig = { aspectRatio: req.size }
   }
-  const body: Record<string, unknown> = {
-    model: req.model,
-    input,
-    response_format: responseFormat,
+  const body = {
+    contents: [{ parts }],
+    generationConfig,
   }
 
   const resp = await fetch(url, {
@@ -60,11 +59,18 @@ export async function generateGeminiImage(
     throw new Error(`gemini ${resp.status}: ${text.slice(0, 300)}`)
   }
   const json = (await resp.json()) as {
-    outputs?: { type?: string; data?: string; mime_type?: string }[]
+    candidates?: {
+      content?: { parts?: GenerateContentPart[] }
+      finishReason?: string
+      finishMessage?: string
+    }[]
   }
-  // Image blocks are returned in the model `outputs` as { type: 'image', data: base64 }
-  for (const part of json.outputs ?? []) {
-    if (part.type === 'image' && part.data) return Buffer.from(part.data, 'base64')
+  // Image blocks come back as parts with inlineData (base64)
+  const candidate = json.candidates?.[0]
+  for (const part of candidate?.content?.parts ?? []) {
+    if (part.inlineData?.data) return Buffer.from(part.inlineData.data, 'base64')
   }
-  throw new Error('gemini returned no image data')
+  // No image: surface the model's own reason (safety / recitation refusals land here)
+  const why = candidate?.finishMessage || candidate?.finishReason
+  throw new Error(`gemini returned no image data${why ? ` (${why})` : ''}`)
 }
