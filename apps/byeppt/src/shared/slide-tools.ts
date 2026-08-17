@@ -54,6 +54,21 @@ const DATA_SOURCE_DEF = {
 
 export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
   {
+    name: 'export_deck_pptx',
+    description:
+      "Export the open deck's CURRENT authoritative state to a .pptx file and return the path plus the deck revision. " +
+      'Use before pptx_to_svg re-derivation (Route B SVG detour) or for deterministic batch inspection. ' +
+      'Write into the deck agent workdir (e.g. analysis/current.pptx), never over the user\u2019s saved file.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Absolute output .pptx path' },
+      },
+      required: ['path'],
+    },
+    mutating: false,
+  },
+  {
     name: 'get_deck_context',
     description:
       "Get the deck's latest outline: per-page list of text elements (element id | type | text preview). Call to confirm global state after edits.",
@@ -208,12 +223,13 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
   {
     name: 'insert_web_image',
     description:
-      'Download an image URL (e.g. one found via the agent’s web search) and insert it into a page (pixel coordinates).',
+      'Insert an image into a page (pixel coordinates). `url` accepts an http(s) image link (e.g. one found via web search) ' +
+      'or an absolute LOCAL file path (e.g. a PNG produced by image_gen in the deck workdir) — local files are read by the main process and placed as picture elements.',
     parameters: {
       type: 'object',
       properties: {
         slideIndex: { type: 'integer' },
-        url: { type: 'string', description: 'Direct image link (http(s))' },
+        url: { type: 'string', description: 'Direct image link (http(s)) or absolute local image path' },
         x: { type: 'number' },
         y: { type: 'number' },
         w: { type: 'number' },

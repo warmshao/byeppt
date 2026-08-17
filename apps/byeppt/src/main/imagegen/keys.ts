@@ -13,10 +13,9 @@ import type { ImageGenProvider } from './index'
 
 type AuthStorageT = import('@warmshao/vsurf').AuthStorage
 
-/** AuthStorage credential ids holding the image-gen keys */
-const KEY_IDS: Record<ImageGenProvider, string> = {
-  gemini: 'imagegen-gemini',
-  openai: 'imagegen-openai',
+/** AuthStorage credential id holding a backend's image-gen key */
+function keyId(provider: ImageGenProvider): string {
+  return `imagegen-${provider}`
 }
 
 let auth: AuthStorageT | null = null
@@ -35,7 +34,7 @@ async function authStore(): Promise<AuthStorageT | null> {
 export async function imageGenApiKey(provider: ImageGenProvider): Promise<string | null> {
   const store = await authStore()
   if (!store) return null
-  const key = await store.getApiKey(KEY_IDS[provider])
+  const key = await store.getApiKey(keyId(provider))
   return key ?? null
 }
 
@@ -45,13 +44,13 @@ export async function setImageGenApiKey(
 ): Promise<boolean> {
   const store = await authStore()
   if (!store) return false
-  store.set(KEY_IDS[provider], { type: 'api_key', key })
+  store.set(keyId(provider), { type: 'api_key', key })
   return true
 }
 
 export async function clearImageGenApiKey(provider: ImageGenProvider): Promise<boolean> {
   const store = await authStore()
   if (!store) return false
-  store.remove(KEY_IDS[provider])
+  store.remove(keyId(provider))
   return true
 }

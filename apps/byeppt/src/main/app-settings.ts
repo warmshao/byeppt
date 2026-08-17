@@ -38,14 +38,11 @@ export interface AppSettings {
   agentProviders?: Record<string, AgentProviderConfig>
   /** Image generation defaults */
   imageGen?: {
-    /** active backend */
-    provider?: 'gemini' | 'openai'
+    /** active backend (one of the imagegen registry ids: gemini/openai/qwen/zhipu/volcengine) */
+    provider?: string
     /** legacy single-model field (pre per-provider config); still honored as a fallback */
     model?: string
-    providers?: {
-      gemini?: ImageGenProviderConfig
-      openai?: ImageGenProviderConfig
-    }
+    providers?: Record<string, ImageGenProviderConfig | undefined>
   }
 }
 

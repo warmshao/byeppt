@@ -232,7 +232,7 @@ export type AgentOAuthEvent = {
 )
 
 export interface ImageGenProviderRow {
-  id: 'gemini' | 'openai'
+  id: string
   label: string
   defaultModel: string
   /** preset model choices for the edit form */
@@ -247,7 +247,7 @@ export interface ImageGenProviderRow {
   verified: boolean
   /** last connectivity test failed — shows the broken-link state on 测试 */
   testFailed: boolean
-  /** the backend the agent's image tool currently uses */
+  /** the backend currently mirrored into the kernel .env */
   active: boolean
 }
 
@@ -281,18 +281,18 @@ export interface AgentSettingsApi {
   setModel(sel: { provider: string; id: string }): Promise<{ ok: boolean; error?: string }>
   imageGenStatus(): Promise<{ providers: ImageGenProviderRow[] }>
   /** 启用: mark one backend as the agent's image tool provider */
-  setImageGenActive(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
+  setImageGenActive(provider: string): Promise<{ ok: boolean; error?: string }>
   /** Per-backend base URL / model overrides (empty string clears) */
   setImageGenConfig(
-    provider: 'gemini' | 'openai',
+    provider: string,
     cfg: { baseUrl?: string; model?: string },
   ): Promise<{ ok: boolean; error?: string }>
   /** Image-gen keys are stored separately from the LLM provider keys */
   setImageGenKey(
-    provider: 'gemini' | 'openai',
+    provider: string,
     key: string,
   ): Promise<{ ok: boolean; error?: string }>
-  clearImageGenKey(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
-  /** Authenticated ping against the backend with its current config */
-  testImageGen(provider: 'gemini' | 'openai'): Promise<{ ok: boolean; error?: string }>
+  clearImageGenKey(provider: string): Promise<{ ok: boolean; error?: string }>
+  /** Real minimal generation through image_gen.py with the backend's current config */
+  testImageGen(provider: string): Promise<{ ok: boolean; error?: string }>
 }

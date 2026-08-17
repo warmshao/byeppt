@@ -29,7 +29,7 @@ inserted as SVG — there is no native SVG element. Either:
 - use the **SVG escape hatch** (SKILL.md §6) for icon-heavy pages, where the
   full library works via `data-icon` + `icon_sync.py`, or
 - pick 1–2 icons, convert to PNG (kernel: Pillow cannot rasterize SVG — use
-  `generate_image` only as a last resort; prefer the escape hatch), or
+  `image_gen` only as a last resort; prefer the escape hatch), or
 - approximate with `add_shape` / SmartArt glyphs for simple markers.
 
 Do not read library SVGs one by one to "browse" — search filenames instead

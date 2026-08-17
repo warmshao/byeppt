@@ -587,6 +587,12 @@ Write `project/images/image_prompts.json` with this shape:
 
 ### Path Selection (Deterministic)
 
+> **byeppt note**: the byeppt host exposes NO native image-generation tool —
+> all AI image generation runs through `image_gen.py` (Settings → 图片生成
+> configures `IMAGE_BACKEND`). Path B below is therefore always unavailable in
+> this host: the effective chain is A → C (Offline Manual), and a `host-native`
+> Design-Spec choice behaves as unavailable (mark rows `Needs-Manual`).
+
 C (AI-generated) supports three implementation modes sharing one `image_prompts.json` source:
 
 | Trigger | Mode | Mechanism |

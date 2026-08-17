@@ -81,6 +81,15 @@ const fail = (summary: string, output: string): SlideToolResult => ({
   summary,
 })
 
+/** Authoritative deck revision straight from the main-process session. */
+async function currentDeckRevision(access: DeckAccess): Promise<number | 'unknown'> {
+  try {
+    return await window.slidesApi.getRevision()
+  } catch {
+    return access.getRevision?.() ?? 'unknown'
+  }
+}
+
 // ── Figure-provenance gate ────────────────────────────────────
 // Prompt rules ("search before writing data") did not stop invented numbers being
 // delivered as fact, so provenance is enforced at the tool layer: chart data must
@@ -446,7 +455,11 @@ async function executeTool(
   switch (call.name) {
     case 'get_deck_context':
       return {
-        output: buildDeckOutline(slides, access.getCurrent(), access.getSelectedIds()),
+        output:
+          buildDeckOutline(slides, access.getCurrent(), access.getSelectedIds()) +
+          `\nDeck revision: ${await currentDeckRevision(access)} ` +
+          '(monotonic; bumps on every canvas edit incl. undo/redo). ' +
+          'When reworking ppt-master SVG pages, compare it to project.json lastImportedDeckRevision first.',
         mutated: false,
         summary: t('aiSumDeckContext'),
       }
@@ -873,8 +886,8 @@ async function executeTool(
       }
     }
 
-    // Internal bridge target (not in SLIDE_TOOL_DEFS): the main-process
-    // generate_image tool places the produced PNG through here.
+    // Internal bridge target (not in SLIDE_TOOL_DEFS): insert_web_image with a
+    // local file path is resolved main-side and the bytes placed through here.
     case 'insert_image_bytes': {
       const idx = Number(call.input.slideIndex)
       const slide = slides[idx]
@@ -1065,8 +1078,11 @@ async function executeTool(
       })
       if ('error' in r) return fail(t('aiFailInsertImage'), r.error ?? 'import failed')
       access.applyDeck(r.slides, r.firstIndex ?? r.slides.length - 1)
+      const revision = await currentDeckRevision(access)
       return {
-        output: `Imported ${r.imported ?? 0} slide(s) from the source pptx (starting at page ${(r.firstIndex ?? 0) + 1}); the deck now has ${r.slides.length} pages.`,
+        output:
+          `Imported ${r.imported ?? 0} slide(s) from the source pptx (starting at page ${(r.firstIndex ?? 0) + 1}); the deck now has ${r.slides.length} pages. ` +
+          `Deck revision is now ${revision} - record it in project.json as lastImportedDeckRevision (via ipython) so later SVG rework can detect canvas edits made after this import.`,
         mutated: true,
         summary: t('aiSumInsertImage', { n: (r.firstIndex ?? 0) + 1 }),
       }

@@ -32,11 +32,11 @@ import type { ProjectStore } from '@byeppt/project-store'
 /** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
 const BYEPPT_PREAMBLE = [
   'You are running inside byeppt, a desktop presentation app (a live PowerPoint editor).',
-  'The user sees the deck canvas updating in real time as your slide tools run.',
-  'Slide tools (get_deck_context, read_slide, execute_slide_script, add_*, set_element_*, generate_image, ask_clarification, import_pptx_slides, …) operate on the currently open deck — results appear on canvas immediately and are undoable by the user.',
-  'view_slide renders a page to a PNG you can see — use it to visually verify your edits (alignment, spacing, overflow, contrast), especially after finishing a slide and during whole-deck QC.',
-  'For any deck creation/beautify/heavy-edit task, follow the byeppt-deck skill (its methodology, stage gates, and design references are authoritative).',
-  'Never fabricate numbers as facts (the tools enforce dataSource); reply in the user’s language.',
+  'Routing: NEW decks are generated through the ppt-master SVG pipeline (byeppt-deck skill Route A): author svg_output/*.svg in the deck workdir, quality-gate and convert each page deterministically via the byeppt-pptx-py kernel skill, then import it with import_pptx_slides so the user watches pages appear live (append new pages, replace_at for revised ones).',
+  'EDITS to the open deck use the native slide tools (get_deck_context, read_slide, execute_slide_script, add_*, set_element_*, insert_web_image, ask_clarification, view_slide) - results appear on canvas immediately and are undoable by the user. export_deck_pptx snapshots the authoritative canvas to a pptx file (returns the deck revision); get_deck_context reports the live revision - before SVG-level rework of an imported deck, compare it to project.json lastImportedDeckRevision and re-derive via pptx_to_svg if the canvas moved on.',
+  'view_slide renders a page to a PNG you can see - use it to visually verify edits and generated pages (alignment, spacing, overflow, contrast), especially during whole-deck QC.',
+  'For any deck task, follow the byeppt-deck skill (its routing, methodology, stage gates, and design references are authoritative).',
+  "Never fabricate numbers as facts (the tools enforce dataSource); reply in the user's language.",
 ].join('\n')
 
 /** Locate the bundled skills dir (repo ./skills in dev, resources/skills when packaged). */

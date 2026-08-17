@@ -11,22 +11,17 @@
 import { ipcMain } from 'electron'
 import {
   activeImageGenProvider,
-  generateImage,
   IMAGE_GEN_PROVIDERS,
+  isImageGenProvider,
   resolveImageGenConfig,
   testImageGenConnection,
   type ImageGenProvider,
-  type ImageGenRequest,
 } from './index'
 import { clearImageGenApiKey, imageGenApiKey, setImageGenApiKey } from './keys'
 import { syncImageGenEnvFile } from './env'
 import { readAppSettings, updateAppSettings, type ImageGenProviderConfig } from '../app-settings'
 
 let registered = false
-
-function isProvider(id: unknown): id is ImageGenProvider {
-  return id === 'gemini' || id === 'openai'
-}
 
 /** merge a patch into one backend's config block */
 function patchProviderConfig(
@@ -43,8 +38,6 @@ function patchProviderConfig(
 export function registerImageGenIpc(): void {
   if (registered) return
   registered = true
-
-  ipcMain.handle('imagegen:generate', (_e, req: ImageGenRequest) => generateImage(req))
 
   /** Card rows for the settings pane: per-backend config + key/test state + active flag */
   ipcMain.handle('imagegen:status', async () => {
@@ -77,7 +70,7 @@ export function registerImageGenIpc(): void {
 
   /** 启用: only a backend that passed its connectivity test can be enabled */
   ipcMain.handle('imagegen:set-active', async (_e, provider: string) => {
-    if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
+    if (!isImageGenProvider(provider)) return { ok: false, error: 'unknown-provider' }
     if (readAppSettings().imageGen?.providers?.[provider]?.verified !== true) {
       return { ok: false, error: 'not-verified' }
     }
@@ -93,7 +86,7 @@ export function registerImageGenIpc(): void {
   ipcMain.handle(
     'imagegen:set-config',
     (_e, provider: string, cfg: { baseUrl?: string; model?: string }) => {
-      if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
+      if (!isImageGenProvider(provider)) return { ok: false, error: 'unknown-provider' }
       const prev = readAppSettings().imageGen?.providers?.[provider] ?? {}
       const next: ImageGenProviderConfig = { ...prev, verified: false, testFailed: false }
       if (cfg.baseUrl !== undefined) {
@@ -116,7 +109,7 @@ export function registerImageGenIpc(): void {
   )
 
   ipcMain.handle('imagegen:set-key', async (_e, provider: string, key: string) => {
-    if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
+    if (!isImageGenProvider(provider)) return { ok: false, error: 'unknown-provider' }
     if (!key.trim()) return { ok: false, error: 'empty-key' }
     const ok = await setImageGenApiKey(provider, key.trim())
     if (!ok) return { ok: false, error: 'sdk-load-failed' }
@@ -127,7 +120,7 @@ export function registerImageGenIpc(): void {
   })
 
   ipcMain.handle('imagegen:clear-key', async (_e, provider: string) => {
-    if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
+    if (!isImageGenProvider(provider)) return { ok: false, error: 'unknown-provider' }
     await clearImageGenApiKey(provider)
     patchProviderConfig(provider, { verified: false, testFailed: false })
     await syncImageGenEnvFile()
@@ -135,7 +128,7 @@ export function registerImageGenIpc(): void {
   })
 
   ipcMain.handle('imagegen:test', async (_e, provider: string) => {
-    if (!isProvider(provider)) return { ok: false, error: 'unknown-provider' }
+    if (!isImageGenProvider(provider)) return { ok: false, error: 'unknown-provider' }
     const res = await testImageGenConnection(provider)
     patchProviderConfig(provider, { verified: res.ok, testFailed: !res.ok })
     return res

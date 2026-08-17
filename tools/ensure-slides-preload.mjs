@@ -8,8 +8,9 @@
 //
 // Building @byeppt/app on every dev start costs ~40s (mostly the renderer, which
 // dev mode never loads), so we only build when the preload bundle is absent.
-// NOTE: if you edit apps/byeppt/src/preload, rebuild explicitly —
-//   npm run build -w @byeppt/app
+// Staleness during dev is handled by the dev:preload watcher
+// (tools/watch-slides-preload.mjs, part of the root dev script) — this hook
+// just guarantees the bundle exists before the shell can create a tab.
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

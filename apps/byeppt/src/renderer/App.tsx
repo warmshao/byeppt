@@ -1115,6 +1115,18 @@ export function App() {
   deckSelectedRef.current = selectedIds
   const deckImagesRef = useRef(images)
   deckImagesRef.current = images
+  const deckRevisionRef = useRef(0)
+  useEffect(() => {
+    // Optional chaining: a stale preload bundle (built before this API
+    // existed) must degrade gracefully, not throw and blank the whole app.
+    void window.slidesApi.getRevision?.().then((r) => {
+      deckRevisionRef.current = r ?? 0
+    })
+    const off = window.slidesApi.onHistoryChanged?.((r) => {
+      deckRevisionRef.current = r.revision
+    })
+    return off
+  }, [])
   const deckApplySlideRef = useRef(applySlide)
   deckApplySlideRef.current = applySlide
   const deckApplyDeckRef = useRef(applyDeck)
@@ -1124,6 +1136,7 @@ export function App() {
       getSlides: () => deckSlidesRef.current,
       getCurrent: () => deckCurrentRef.current,
       getSelectedIds: () => deckSelectedRef.current,
+      getRevision: () => deckRevisionRef.current,
       getImages: () => deckImagesRef.current,
       applySlide: (i, updated) => deckApplySlideRef.current(i, updated),
       applyDeck: (all, goTo) => deckApplyDeckRef.current(all, goTo),

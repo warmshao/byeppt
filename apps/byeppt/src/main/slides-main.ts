@@ -680,6 +680,7 @@ async function openAndBuild(
     fitWidthPx,
     undoStack: [],
     redoStack: [],
+    revision: 0,
     ...(recovered ? { metaDirty: true } : {}),
   })
   scheduleHistoryNotify(sessions.get(wc.id)!)
@@ -1422,7 +1423,7 @@ export function registerSlidesIpc(): void {
 
   ipcMain.handle('slides:new-blank', async (e, fitWidthPx: number): Promise<OpenResult> => {
     const opened = await openPptx(await createBlankPptx())
-    sessions.set(e.sender.id, { path: '', opened, fitWidthPx, undoStack: [], redoStack: [] })
+    sessions.set(e.sender.id, { path: '', opened, fitWidthPx, undoStack: [], redoStack: [], revision: 0 })
     scheduleHistoryNotify(sessions.get(e.sender.id)!)
     return {
       path: '',
@@ -2145,6 +2146,7 @@ export function registerSlidesIpc(): void {
     return buildAllRenderSlides(session.opened, session.fitWidthPx)
   })
 
+  ipcMain.handle('slides:get-revision', (e) => sessions.get(e.sender.id)?.revision ?? 0)
   ipcMain.handle('slides:get-slide-size', (e) => {
     const session = sessions.get(e.sender.id)
     return session ? { ...session.opened.deck.size } : null

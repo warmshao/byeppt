@@ -389,14 +389,14 @@ def _resolve_backend() -> tuple[object, str]:
 
     supported = ", ".join(SUPPORTED_BACKENDS)
     print(
-        "Error: No image backend configured for Path A (image_gen.py).\n"
+        "Error: No image backend configured (image_gen.py).\n"
         "\n"
-        "If your host (Codex / Antigravity / Claude Code / etc.) has a native image\n"
-        "generation tool, do NOT run this script — switch to Path B: invoke the host's\n"
-        "image tool directly with the prompts from images/image_prompts.json and save\n"
-        "the outputs to images/<filename>. See references/image-generator.md §7 Path B.\n"
+        "In byeppt, image backends are configured in the app's Settings → 图片生成:\n"
+        "the user picks a backend, enters its API key (optionally a base URL and\n"
+        "model), clicks 测试 (test), then 启用 (enable). The enabled backend is\n"
+        "mirrored into this .env automatically. Tell the user to do that, then retry.\n"
         "\n"
-        "To use Path A instead, set IMAGE_BACKEND in one of these places:\n"
+        "Manual override (advanced): set IMAGE_BACKEND in one of these places:\n"
         f"  1. Current process environment\n"
         f"  2. {ENV_PATH}\n"
         "\n"

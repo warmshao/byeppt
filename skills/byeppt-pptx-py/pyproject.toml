@@ -9,6 +9,7 @@ description = "ppt-master deterministic PPTX tooling (SVG->PPTX, quality gates) 
 requires-python = ">=3.10"
 dependencies = [
   "python-pptx",
+  "XlsxWriter>=3.0.0",
   "Pillow",
   "skia-pathops",
   "uharfbuzz",
@@ -17,6 +18,10 @@ dependencies = [
   "google-genai",
   "beautifulsoup4",
   "lxml",
+  "PyMuPDF>=1.23.0",
+  "mammoth>=1.6.0",
+  "markdownify>=0.11.6",
+  "openpyxl>=3.1.0",
 ]
 
 [tool.setuptools]

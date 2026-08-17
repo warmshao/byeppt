@@ -6,9 +6,12 @@
  * AgentToolResult text content.
  */
 import type { TSchema } from 'typebox'
+import { mkdir } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { savePptxToFile } from '@byeppt/pptx-engine'
 import { SLIDE_TOOL_DEFS } from '../../shared/slide-tools'
-import { invokeOnActiveSlidesWindow } from './deck-bridge'
-import { editImage, generateImage } from '../imagegen'
+import { invokeOnActiveSlidesWindow, resolveDeckWebContents, type DeckInvokeOutcome } from './deck-bridge'
+import { sessions } from '../session-state'
 
 type VsurfSdk = typeof import('@warmshao/vsurf')
 type ToolDefinition = import('@warmshao/vsurf').ToolDefinition
@@ -44,12 +47,18 @@ export async function buildSlideCustomTools(
       ...(def.mutating ? { executionMode: 'sequential' as const } : {}),
       execute: async (_toolCallId, params, signal) => {
         try {
-          const r = await invokeOnActiveSlidesWindow(
-            def.name,
-            (params ?? {}) as Record<string, unknown>,
-            signal,
-            resolveWcId?.(),
-          )
+          const args = (params ?? {}) as Record<string, unknown>
+          // export_deck_pptx runs main-side: the authoritative deck session
+          // lives here, so there is nothing to forward into the renderer.
+          // insert_web_image with a local path also runs main-side (the renderer
+          // cannot read files): read the bytes here and place them through the
+          // bridge's insert_image_bytes op.
+          const r =
+            def.name === 'export_deck_pptx'
+              ? await exportDeckPptx(args, resolveWcId?.())
+              : def.name === 'insert_web_image' && isLocalImagePath(args.url)
+                ? await insertLocalImage(args, signal, resolveWcId?.())
+                : await invokeOnActiveSlidesWindow(def.name, args, signal, resolveWcId?.())
           const text = r.isError ? `Error: ${r.output}` : r.output
           return {
             content: [{ type: 'text' as const, text }],
@@ -70,9 +79,69 @@ export async function buildSlideCustomTools(
     }),
   )
   tools.push(buildViewSlideTool(sdk, Type, resolveWcId))
-  tools.push(buildGenerateImageTool(sdk, Type, resolveWcId))
-  tools.push(buildEditImageTool(sdk, Type, resolveWcId))
   return tools
+}
+
+/** True when insert_web_image's `url` is a local file path rather than http(s). */
+function isLocalImagePath(url: unknown): url is string {
+  return typeof url === 'string' && url.trim() !== '' && !/^https?:\/\//i.test(url)
+}
+
+/**
+ * insert_web_image with a local path: the renderer cannot read files, so main
+ * reads the image and forwards the bytes through the bridge's
+ * insert_image_bytes op (same placement box semantics).
+ */
+async function insertLocalImage(
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  preferWcId?: number,
+): Promise<DeckInvokeOutcome> {
+  const path = String(args.url)
+  const ext = (path.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'png').toLowerCase()
+  const { readFile } = await import('node:fs/promises')
+  let buf: Buffer
+  try {
+    buf = await readFile(path)
+  } catch {
+    throw new Error(`cannot read local image: ${path}`)
+  }
+  return invokeOnActiveSlidesWindow(
+    'insert_image_bytes',
+    {
+      slideIndex: args.slideIndex,
+      base64: buf.toString('base64'),
+      ext: ext === 'jpg' ? 'jpeg' : ext,
+      xPx: args.x,
+      yPx: args.y,
+      wPx: args.w,
+      hPx: args.h,
+    },
+    signal,
+    preferWcId,
+  )
+}
+
+/** Export the owning tab's current deck to a .pptx (authoritative snapshot). */
+async function exportDeckPptx(
+  args: Record<string, unknown>,
+  preferWcId?: number,
+): Promise<DeckInvokeOutcome> {
+  const wc = resolveDeckWebContents(preferWcId)
+  if (!wc) throw new Error('No slides window is open - open or create a presentation first')
+  const session = sessions.get(wc.id)
+  if (!session) throw new Error('No deck session for the owning tab')
+  const path = String(args.path ?? '').trim()
+  if (!path) throw new Error('path is required (absolute .pptx path inside the deck workdir)')
+  if (!path.toLowerCase().endsWith('.pptx')) throw new Error('path must end with .pptx')
+  await mkdir(dirname(path), { recursive: true })
+  await savePptxToFile(session.opened, path)
+  return {
+    output:
+      `Exported the current deck (revision ${session.revision}) to ${path}. ` +
+      'The canvas state is authoritative; re-derive SVG via pptx_to_svg before any SVG-level rework.',
+    summary: 'Exported deck',
+  }
 }
 
 /**
@@ -128,198 +197,6 @@ function buildViewSlideTool(
           content: [{ type: 'text' as const, text: `Error: ${msg}` }],
           details: { summary: undefined, isError: true, mutated: false },
         }
-      }
-    },
-  })
-}
-
-interface PlaceParams {
-  slideIndex?: number
-  xPx?: number
-  yPx?: number
-  wPx?: number
-  hPx?: number
-}
-
-/** Optionally place a generated image file onto a slide via insert_image_bytes. */
-async function placeOnSlide(
-  path: string,
-  p: PlaceParams,
-  signal?: AbortSignal,
-  resolveWcId?: () => number | undefined,
-): Promise<{ placed: string; mutated: boolean }> {
-  if (p.slideIndex === undefined) return { placed: '', mutated: false }
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const buf = await readFile(path)
-    const r = await invokeOnActiveSlidesWindow(
-      'insert_image_bytes',
-      {
-        slideIndex: p.slideIndex,
-        base64: buf.toString('base64'),
-        ext: 'png',
-        ...(p.xPx !== undefined ? { xPx: p.xPx } : {}),
-        ...(p.yPx !== undefined ? { yPx: p.yPx } : {}),
-        ...(p.wPx !== undefined ? { wPx: p.wPx } : {}),
-        ...(p.hPx !== undefined ? { hPx: p.hPx } : {}),
-      },
-      signal,
-      resolveWcId?.(),
-    )
-    return {
-      placed: r.isError ? `\nPlacement failed: ${r.output}` : `\nPlaced on slide ${p.slideIndex + 1}.`,
-      mutated: r.mutated === true,
-    }
-  } catch (err) {
-    return { placed: `\nPlacement failed: ${err instanceof Error ? err.message : String(err)}`, mutated: false }
-  }
-}
-
-/**
- * AI image generation (Gemini banana / OpenAI gpt-image, configured in
- * Settings). Runs entirely in the main process; optionally places the result
- * onto a slide via the bridge's insert_image_bytes path.
- */
-function buildGenerateImageTool(
-  sdk: VsurfSdk,
-  Type: typeof import('typebox').Type,
-  resolveWcId?: () => number | undefined,
-): ToolDefinition {
-  return sdk.defineTool({
-    name: 'generate_image',
-    label: 'Generate Image',
-    description:
-      'Generate an image from a text prompt with the configured AI image backend (Gemini "banana" or OpenAI gpt-image). ' +
-      'Returns the saved local PNG path. When slideIndex is provided the image is also placed on that ' +
-      'slide (0-based) as an editable picture element at the given box (defaults: centered, ~60% width). ' +
-      'Use for hero visuals, illustrations, icons-with-style; prefer real photos via web search + insert_web_image. ' +
-      'To edit / transform an existing image (including a previously generated one), use edit_image instead.',
-    parameters: Type.Object({
-      prompt: Type.String({ description: 'Image prompt (English works best); be specific about style, palette, composition' }),
-      slideIndex: Type.Optional(Type.Number({ description: '0-based slide to place the image on; omit to only save the file' })),
-      size: Type.Optional(Type.String({ description: "gemini: aspect like '16:9'; openai: '1536x1024' etc." })),
-      quality: Type.Optional(Type.String({ description: "openai: 'low'|'medium'|'high'|'auto'" })),
-      xPx: Type.Optional(Type.Number()),
-      yPx: Type.Optional(Type.Number()),
-      wPx: Type.Optional(Type.Number()),
-      hPx: Type.Optional(Type.Number()),
-    }) as unknown as TSchema,
-    execute: async (_id, params, signal) => {
-      const p = (params ?? {}) as {
-        prompt?: string
-        slideIndex?: number
-        size?: string
-        quality?: string
-        xPx?: number
-        yPx?: number
-        wPx?: number
-        hPx?: number
-      }
-      if (!p.prompt?.trim()) {
-        return { content: [{ type: 'text' as const, text: 'Error: prompt is required' }], details: { summary: undefined, isError: true, mutated: false } }
-      }
-      const result = await generateImage({
-        prompt: p.prompt,
-        size: p.size,
-        quality: p.quality,
-        signal,
-      })
-      if (!result.ok || !result.path) {
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'image generation failed'}` }],
-          details: { summary: undefined, isError: true, mutated: false },
-        }
-      }
-      const { placed, mutated } = await placeOnSlide(result.path, p, signal, resolveWcId)
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Image generated (${result.provider}/${result.model}): ${result.path}${placed}`,
-          },
-        ],
-        details: { summary: undefined, isError: false, mutated },
-      }
-    },
-  })
-}
-
-/**
- * Image-to-image / editing with the configured AI backend. Feed a source image
- * as an absolute local path (e.g. one returned by generate_image), a data URL,
- * or raw base64. OpenAI also supports inpainting masks and up to 16 input
- * images for composition; Gemini ignores masks (conversational editing only).
- */
-function buildEditImageTool(
-  sdk: VsurfSdk,
-  Type: typeof import('typebox').Type,
-  resolveWcId?: () => number | undefined,
-): ToolDefinition {
-  return sdk.defineTool({
-    name: 'edit_image',
-    label: 'Edit Image',
-    description:
-      'Edit or transform an existing image with the configured AI image backend (Gemini "banana" or OpenAI gpt-image). ' +
-      'Pass `image` as an absolute local path (e.g. a path returned by generate_image), a data URL, or raw base64. ' +
-      'OpenAI supports an optional `mask` for inpainting (transparent areas are the edit region) and extra `images` ' +
-      'for multi-image composition (up to 16 total). Gemini does not support masks. ' +
-      'Returns the saved local PNG path; with slideIndex the result is also placed on that slide (0-based) at the given box.',
-    parameters: Type.Object({
-      prompt: Type.String({ description: 'Edit instruction (what to change / restyle / add, English works best)' }),
-      image: Type.String({ description: 'Source image to edit: absolute path, data URL, or base64' }),
-      images: Type.Optional(Type.Array(Type.String({ description: 'Additional reference images (OpenAI multi-image composition; path/data-url/base64)' }))),
-      mask: Type.Optional(Type.String({ description: 'Inpainting mask (OpenAI only): path/data-url; transparent areas are edited' })),
-      slideIndex: Type.Optional(Type.Number({ description: '0-based slide to place the result on; omit to only save the file' })),
-      size: Type.Optional(Type.String({ description: "gemini: aspect like '16:9'; openai: '1536x1024' etc." })),
-      quality: Type.Optional(Type.String({ description: "openai: 'low'|'medium'|'high'|'auto'" })),
-      xPx: Type.Optional(Type.Number()),
-      yPx: Type.Optional(Type.Number()),
-      wPx: Type.Optional(Type.Number()),
-      hPx: Type.Optional(Type.Number()),
-    }) as unknown as TSchema,
-    execute: async (_id, params, signal) => {
-      const p = (params ?? {}) as {
-        prompt?: string
-        image?: string
-        images?: string[]
-        mask?: string
-        slideIndex?: number
-        size?: string
-        quality?: string
-        xPx?: number
-        yPx?: number
-        wPx?: number
-        hPx?: number
-      }
-      if (!p.prompt?.trim()) {
-        return { content: [{ type: 'text' as const, text: 'Error: prompt is required' }], details: { summary: undefined, isError: true, mutated: false } }
-      }
-      if (!p.image?.trim()) {
-        return { content: [{ type: 'text' as const, text: 'Error: image is required (path, data URL, or base64)' }], details: { summary: undefined, isError: true, mutated: false } }
-      }
-      const result = await editImage({
-        prompt: p.prompt,
-        referenceImages: [p.image, ...(p.images ?? [])],
-        mask: p.mask,
-        size: p.size,
-        quality: p.quality,
-        signal,
-      })
-      if (!result.ok || !result.path) {
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'image editing failed'}` }],
-          details: { summary: undefined, isError: true, mutated: false },
-        }
-      }
-      const { placed, mutated } = await placeOnSlide(result.path, p, signal, resolveWcId)
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `Image edited (${result.provider}/${result.model}): ${result.path}${placed}`,
-          },
-        ],
-        details: { summary: undefined, isError: false, mutated },
       }
     },
   })

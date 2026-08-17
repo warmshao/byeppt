@@ -43,7 +43,7 @@ function ensureListener(): void {
 }
 
 /** Pick the slides renderer to run tools against; null when none is open. */
-function targetWebContents(preferId?: number): WebContents | null {
+export function resolveDeckWebContents(preferId?: number): WebContents | null {
   // The session's owning tab wins — a run started from tab A must keep editing
   // tab A's deck even when the user switches focus mid-run
   if (preferId !== undefined) {
@@ -82,7 +82,7 @@ export function invokeOnActiveSlidesWindow(
   signal?: AbortSignal,
   preferWcId?: number,
 ): Promise<DeckInvokeOutcome> {
-  const wc = targetWebContents(preferWcId)
+  const wc = resolveDeckWebContents(preferWcId)
   if (!wc) {
     return Promise.reject(
       new Error('No slides window is open — open or create a presentation first'),

@@ -26,8 +26,10 @@ import {
   OpenAI,
   OpenCode,
   OpenRouter,
+  Qwen,
   Vercel,
   VertexAI,
+  Volcengine,
   XAI,
   XiaomiMiMo,
   ZAI,
@@ -101,13 +103,16 @@ const PROVIDER_ICON_MAP: Record<string, IconComponent> = {
   opencode: lobe(OpenCode),
   'opencode-go': lobe(OpenCode),
   openrouter: lobe(OpenRouter),
+  qwen: lobe(Qwen), // image-gen backend id
   'vercel-ai-gateway': lobe(Vercel),
+  volcengine: lobe(Volcengine), // image-gen backend id (Seedream/Doubao)
   xai: lobe(XAI),
   xiaomi: lobe(XiaomiMiMo),
   'xiaomi-token-plan-ams': lobe(XiaomiMiMo),
   'xiaomi-token-plan-cn': lobe(XiaomiMiMo),
   'xiaomi-token-plan-sgp': lobe(XiaomiMiMo),
   zai: lobe(ZAI),
+  zhipu: lobe(ZAI), // image-gen backend id — Zhipu GLM-Image; Zhipu's current brand is Z AI
 }
 
 export function ProviderIcon({

@@ -23,6 +23,8 @@ export interface DeckAccess {
   getSlides(): RenderSlide[]
   getCurrent(): number
   getSelectedIds(): string[]
+  /** Monotonic deck revision (bumps on every canvas edit incl. undo/redo) */
+  getRevision?(): number
   /** Loaded picture/background bitmaps (dataUrl key → element) for offscreen rendering */
   getImages(): Map<string, HTMLImageElement>
   applySlide(slideIndex: number, updated: RenderSlide): void

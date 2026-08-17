@@ -42,8 +42,11 @@ system mode).
 - `packages/*` — pptx-engine, pptx-render, font-metrics, ui, i18n,
   project-store, file-parse, electron-utils, docx-engine (used by file-parse
   and pptx-engine), slide-tools (agent tool contracts; planned).
-- `skills/*` — vsurf skills (byeppt-deck methodology, byeppt-pptx-py Python
-  helpers; planned).
+- `skills/*` — vsurf skills. `byeppt-deck` routes deck work: new decks go
+  through ppt-master's SVG pipeline (svg_output -> deterministic conversion ->
+  per-page live import), edits use the native slide tools. `byeppt-pptx-py`
+  is the deterministic Python toolchain installed into the kernel venv
+  (source_to_md, quality gates, convert_page/svg_to_pptx, pptx_to_svg).
 - The agent runs in the main process via the vsurf SDK; slide tools bridge
   over IPC into renderer-side executors that mutate the deck through the same
   applySlide/applyDeck pipeline as manual editing (never mutate from main).
@@ -53,13 +56,21 @@ system mode).
 - App main-process code (`apps/byeppt/src/main`) is bundled by electron-vite;
   rebuild after changing it or the change silently does not run.
 - In dev mode, preload changes require a rebuild — a stale preload leaves the
-  renderer blank.
+  renderer blank (the fresh dev-server renderer calls `slidesApi` methods the
+  old preload never injected, the throw unmounts React, the tab goes blank).
 - The shell's slides tab uses `apps/byeppt/out/preload/index.js` as its preload,
-  but root `npm run dev` only starts the byeppt *renderer* dev server. The
-  `predev` hook (`tools/ensure-slides-preload.mjs`) builds `@byeppt/app` when
-  that bundle is missing (a missing preload = blank slides tab). It does not
-  watch: after editing `apps/byeppt/src/preload`, rebuild explicitly with
-  `npm run build -w @byeppt/app`. Dev also needs Node ≥ 22.12 (engines) —
+  but root `npm run dev` only starts the byeppt *renderer* dev server. Two
+  guards keep that bundle fresh: the `predev` hook
+  (`tools/ensure-slides-preload.mjs`) builds `@byeppt/app` when the bundle is
+  missing, and the `dev:preload` watcher (`tools/watch-slides-preload.mjs`, a
+  third `concurrently` process in root `dev`) rebuilds the preload in under a
+  second whenever `src/preload` / `src/shared` change — newly opened tabs pick
+  it up immediately, no app restart needed. (The shell bundles byeppt's main
+  sources directly, so main-process edits hot-restart via the shell's own
+  `electron-vite dev --watch`; `out/main` is only used by `dev:standalone` and
+  packaged builds.) As a last resort, the renderer root is wrapped in a
+  `FatalBoundary` (`src/renderer/main.tsx`) that shows the error instead of a
+  blank page. Dev also needs Node ≥ 22.12 (engines) —
   under Node 20.18 the slides renderer dev server dies on `ERR_REQUIRE_ESM`
   and slides tabs load nothing.
 - Workspace packages listed in the app's `dependencies` must also be added to
@@ -73,11 +84,15 @@ system mode).
   ships via `extraResources` → `resources/skills` (top-level `*.py` excluded —
   `skills/check_links.py` is a maintenance tool); `session.ts
   resolveSkillsDir()` depends on that layout.
-- The Settings → 图片生成 backend is mirrored to `<userData>/agent/.env`
-  (`imagegen/env.ts`) so the kernel's `image_gen.py` batch path shares the
-  interactive tool's backend. Never export those keys via `process.env` —
-  ambient `OPENAI_API_KEY` etc. would register as LLM-provider credentials in
-  the vsurf ModelRegistry.
+- All image generation runs in the kernel via the byeppt-pptx-py toolchain
+  (`image_gen.py`); the main process keeps no generation code — `imagegen/`
+  only owns the backend registry (gemini/openai/qwen/zhipu/volcengine,
+  mirroring image_gen.py's core backends), key storage, and the settings test
+  (a real minimal generation via the kernel venv python). The enabled
+  Settings → 图片生成 backend is mirrored to `<userData>/agent/.env`
+  (`imagegen/env.ts`) so the kernel's `image_gen.py` sees it. Never export
+  those keys via `process.env` — ambient `OPENAI_API_KEY` etc. would register
+  as LLM-provider credentials in the vsurf ModelRegistry.
 - `useI18n()`'s `t` is not referentially stable; never put it in a hook
   dependency array. Store the key and translate at render time.
 - This environment sets `ELECTRON_RUN_AS_NODE=1`; unset it

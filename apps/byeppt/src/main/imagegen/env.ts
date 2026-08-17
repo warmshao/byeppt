@@ -1,13 +1,13 @@
 /**
- * Kernel env bridge for the batch image path.
+ * Kernel env bridge for image generation.
  *
- * The interactive image tool (generate_image) runs in the main process with
- * the Settings → 图片生成 backend. ppt-master's batch path (image_gen.py,
- * image_search.py provider keys) runs inside the vsurf IPython kernel and
- * reads its config from process env or the first `.env` at the kernel cwd —
- * which is `<userData>/agent`. Writing the active backend there keeps ONE
- * configuration surface: the user configures Settings once and both the
- * interactive tool and the kernel scripts see the same backend/key/model.
+ * ALL image generation runs in the vsurf IPython kernel via the bundled
+ * byeppt-pptx-py toolchain (image_gen.py); the main process only owns the
+ * backend registry and settings. image_gen.py reads its config from process
+ * env or the first `.env` at the kernel cwd — which is `<userData>/agent`
+ * (or the deck workdir for session kernels). Writing the active backend
+ * there keeps ONE configuration surface: the user configures Settings once
+ * and both interactive and batch generation see the same backend/key/model.
  *
  * We deliberately do NOT set process.env.OPENAI_API_KEY / GEMINI_API_KEY in
  * the main process: the image-gen keys are intentionally separate from the
@@ -21,18 +21,22 @@ import { app } from 'electron'
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readAppSettings } from '../app-settings'
-import { activeImageGenProvider, resolveImageGenConfig } from './index'
+import { activeImageGenProvider, IMAGE_GEN_PROVIDERS, resolveImageGenConfig } from './index'
 import { imageGenApiKey } from './keys'
 
-const MANAGED_KEYS = [
+/**
+ * Managed .env lines: IMAGE_BACKEND plus the canonical triple for every
+ * registered backend. User-added lines (PEXELS_API_KEY, or alternate key names
+ * like DASHSCOPE_API_KEY / ARK_API_KEY) are never touched.
+ */
+const MANAGED_KEYS: readonly string[] = [
   'IMAGE_BACKEND',
-  'GEMINI_API_KEY',
-  'GEMINI_BASE_URL',
-  'GEMINI_MODEL',
-  'OPENAI_API_KEY',
-  'OPENAI_BASE_URL',
-  'OPENAI_MODEL',
-] as const
+  ...Object.values(IMAGE_GEN_PROVIDERS).flatMap((info) => [
+    `${info.envPrefix}_API_KEY`,
+    `${info.envPrefix}_BASE_URL`,
+    `${info.envPrefix}_MODEL`,
+  ]),
+]
 
 function envFilePath(): string {
   return join(app.getPath('userData'), 'agent', '.env')
@@ -44,8 +48,8 @@ async function buildEnvContent(kept: string[]): Promise<string> {
   if (provider) {
     const cfg = resolveImageGenConfig(provider)
     const key = await imageGenApiKey(provider)
+    const prefix = IMAGE_GEN_PROVIDERS[provider].envPrefix
     const lines: string[] = [`IMAGE_BACKEND=${provider}`]
-    const prefix = provider === 'gemini' ? 'GEMINI' : 'OPENAI'
     if (key) lines.push(`${prefix}_API_KEY=${key}`)
     if (cfg.baseUrl) lines.push(`${prefix}_BASE_URL=${cfg.baseUrl}`)
     if (cfg.model) lines.push(`${prefix}_MODEL=${cfg.model}`)

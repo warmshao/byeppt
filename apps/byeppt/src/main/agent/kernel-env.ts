@@ -15,7 +15,8 @@
  * forwards it to the renderer as `agent:event` with `byeppt:kernel-*` types.
  */
 import { app } from 'electron'
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -201,6 +202,35 @@ async function detectPythonSkills(): Promise<PythonSkillRuntimeInfo[]> {
   return sdk.getPythonSkillRuntimeInfo(skills)
 }
 
+/** Fingerprint of every bundled Python skill's pyproject.toml (name + full bytes). */
+function pythonSkillsFingerprint(skillsDir: string | null): string {
+  if (!skillsDir) return ''
+  const hash = createHash('sha256')
+  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const pyproject = join(skillsDir, entry.name, 'pyproject.toml')
+    if (!existsSync(pyproject)) continue
+    hash.update(entry.name)
+    hash.update('\0')
+    hash.update(readFileSync(pyproject))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
+/** Marker proving which skill dependency set the kernel venv was built with. */
+function kernelSkillsMarkerPath(): string {
+  return join(agentDir(), 'kernel-python-skills.json')
+}
+
+function kernelSkillsMarkerMatches(fingerprint: string): boolean {
+  try {
+    return JSON.parse(readFileSync(kernelSkillsMarkerPath(), 'utf8'))?.fingerprint === fingerprint
+  } catch {
+    return false
+  }
+}
+
 /**
  * Provision the kernel venv with the bundled python skills (installs the
  * packages and their pyproject dependencies via vsurf's uv bootstrap). Uses a
@@ -212,8 +242,13 @@ export async function provisionKernelSkills(
 ): Promise<{ ok: boolean; error?: string }> {
   const pythonSkills = await detectPythonSkills()
   if (pythonSkills.length === 0) return { ok: true }
-  // One-time per machine: skip when the skills + key dep are already installed.
-  if (await pythonCanImport(resolveKernelPython(), ['byeppt_pptx_py', 'pptx'])) {
+  // Skip only when the dependency fingerprint matches AND the packages import:
+  // adding pyproject deps later must trigger a reinstall on upgraded machines.
+  const fingerprint = pythonSkillsFingerprint(resolveSkillsDir())
+  if (
+    kernelSkillsMarkerMatches(fingerprint) &&
+    (await pythonCanImport(resolveKernelPython(), ['byeppt_pptx_py', 'pptx']))
+  ) {
     return { ok: true }
   }
   const sdk = await import('@warmshao/vsurf')
@@ -223,6 +258,11 @@ export async function provisionKernelSkills(
   try {
     onProgress?.('正在准备 Python 运行环境（首次需下载 Python 与依赖，请稍候）…')
     await provisioner.ensure(onProgress)
+    mkdirSync(agentDir(), { recursive: true })
+    writeFileSync(
+      kernelSkillsMarkerPath(),
+      JSON.stringify({ fingerprint, updatedAt: new Date().toISOString() }, null, 2) + '\n',
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

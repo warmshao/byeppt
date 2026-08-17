@@ -41,6 +41,8 @@ export interface Session {
   fitWidthPx: number
   undoStack: HistorySnapshot[]
   redoStack: HistorySnapshot[]
+  /** Monotonic edit revision: bumps on every pushHistory/restore, never resets. */
+  revision: number
   /** Nested history transaction used to collapse an AI tool/run into one undo step. */
   historyBatch?: {
     depth: number
@@ -112,6 +114,7 @@ export function scheduleHistoryNotify(session: Session): void {
       webContents.fromId(id)?.send('slides:history-changed', {
         canUndo: session.undoStack.length > 0,
         canRedo: session.redoStack.length > 0,
+        revision: session.revision,
       })
       return
     }
@@ -120,6 +123,7 @@ export function scheduleHistoryNotify(session: Session): void {
 
 /** Call before an edit operation: push onto the undo stack and clear the redo stack. */
 export function pushHistory(session: Session): void {
+  session.revision += 1
   session.undoStack.push(takeSnapshot(session))
   trimHistory(session.undoStack)
   session.redoStack = []
@@ -197,6 +201,7 @@ export function restoreAiSnapshot(session: Session, id: number): boolean {
 }
 
 export function restoreSnapshot(session: Session, snap: HistorySnapshot): void {
+  session.revision += 1
   // Clone: the live deck mutates elements in place, so handing a snapshot's own
   // arrays over would let later edits rewrite history still referenced by the
   // other stack (undo → edit → redo would replay mutated state).

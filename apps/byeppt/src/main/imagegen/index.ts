@@ -1,23 +1,34 @@
 /**
- * Image generation service (Phase 4): thin multi-provider layer.
- * OpenAI (gpt-image series) goes through the Vercel AI SDK
- * (`@ai-sdk/openai` + `ai`'s generateImage) for text-to-image AND editing;
- * Gemini ("banana" series) calls the Generative Language `generateContent`
- * endpoint directly — the only Gemini path OpenAI-style relays proxy.
+ * Image generation backends (Settings → 图片生成): registry + config only.
  *
- * Each backend is configured independently in Settings → 图片生成: its own API
- * key (vsurf AuthStorage under `imagegen-<id>`, NOT shared with the LLM
- * provider keys), an optional base-URL override (empty = official endpoint),
- * and a model pick. Non-secret prefs live in userData/app-settings.json.
+ * byeppt keeps NO generation protocol code in the main process. All image
+ * generation runs through the bundled byeppt-pptx-py toolchain
+ * (image_gen.py — gemini/openai/qwen/zhipu/volcengine/... backends) inside the
+ * kernel python environment, one implementation shared by the interactive
+ * chat flow and the deck batch flow. The agent invokes it via
+ * `pm.run('image_gen', ...)`; this module owns:
+ *   - the backend registry exposed to the settings pane,
+ *   - per-backend settings resolution (model / baseUrl; keys live in keys.ts),
+ *   - the connectivity test, which performs a REAL minimal generation through
+ *     image_gen.py so relays/protocol mismatches surface exactly as they
+ *     would in production.
+ *
+ * Each backend is configured independently: its own API key (vsurf AuthStorage
+ * under `imagegen-<id>`, NOT shared with the LLM provider keys), an optional
+ * base-URL override (empty = official endpoint), and a model pick. Non-secret
+ * prefs live in userData/app-settings.json.
  */
 import { app } from 'electron'
+import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readAppSettings } from '../app-settings'
-import { generateGeminiImage } from './gemini'
-import { editOpenAIImage, generateOpenAIImage } from './openai'
+import { provisionKernelSkills, resolveKernelPython } from '../agent/kernel-env'
 import { imageGenApiKey } from './keys'
 
-export type ImageGenProvider = 'gemini' | 'openai'
+export type ImageGenProvider = 'gemini' | 'openai' | 'qwen' | 'zhipu' | 'volcengine'
 
 export interface ImageGenProviderInfo {
   id: ImageGenProvider
@@ -26,8 +37,18 @@ export interface ImageGenProviderInfo {
   /** preset model choices for the settings picker (custom ids stay possible) */
   models: string[]
   defaultBaseUrl: string
+  /**
+   * Env var prefix image_gen.py reads for this backend:
+   * `<PREFIX>_API_KEY` / `<PREFIX>_BASE_URL` / `<PREFIX>_MODEL`.
+   */
+  envPrefix: string
 }
 
+/**
+ * The settings pane mirrors image_gen.py's CORE backends. Defaults here track
+ * `BACKEND_REGISTRY` / `backend_*.py` in
+ * skills/byeppt-pptx-py/src/byeppt_pptx_py/scripts — keep them in sync.
+ */
 export const IMAGE_GEN_PROVIDERS: Record<ImageGenProvider, ImageGenProviderInfo> = {
   gemini: {
     id: 'gemini',
@@ -35,6 +56,7 @@ export const IMAGE_GEN_PROVIDERS: Record<ImageGenProvider, ImageGenProviderInfo>
     defaultModel: 'gemini-3.1-flash-image',
     models: ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image', 'gemini-3-pro-image', 'gemini-2.5-flash-image'],
     defaultBaseUrl: 'https://generativelanguage.googleapis.com',
+    envPrefix: 'GEMINI',
   },
   openai: {
     id: 'openai',
@@ -42,50 +64,52 @@ export const IMAGE_GEN_PROVIDERS: Record<ImageGenProvider, ImageGenProviderInfo>
     defaultModel: 'gpt-image-2',
     models: ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'gpt-image-1-mini'],
     defaultBaseUrl: 'https://api.openai.com',
+    envPrefix: 'OPENAI',
+  },
+  qwen: {
+    id: 'qwen',
+    label: 'Alibaba Qwen',
+    defaultModel: 'qwen-image-2.0-pro',
+    models: ['qwen-image-2.0-pro', 'qwen-image-2.0', 'qwen-image'],
+    defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+    envPrefix: 'QWEN',
+  },
+  zhipu: {
+    id: 'zhipu',
+    label: 'Zhipu GLM-Image',
+    defaultModel: 'glm-image',
+    models: ['glm-image'],
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4/images/generations',
+    envPrefix: 'ZHIPU',
+  },
+  volcengine: {
+    id: 'volcengine',
+    label: 'Volcengine Seedream',
+    defaultModel: 'doubao-seedream-4-5-251128',
+    models: ['doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'],
+    defaultBaseUrl: 'https://operator.las.cn-beijing.volces.com/api/v1/images/generations',
+    envPrefix: 'VOLCENGINE',
   },
 }
 
-export interface ImageGenRequest {
-  provider?: ImageGenProvider
-  model?: string
-  prompt: string
-  /** e.g. '16:9' (gemini) or '1536x1024' (openai); provider-specific, optional */
-  size?: string
-  /** openai: 'low'|'medium'|'high'|'auto'; gemini: ignored */
-  quality?: string
-  /**
-   * Source image(s) for editing / image-to-image / composition
-   * (absolute paths, data URLs, or raw base64). Required for editImage().
-   */
-  referenceImages?: string[]
-  /** Inpainting mask (OpenAI only): transparent areas are the edit region. */
-  mask?: string
-  signal?: AbortSignal
-}
-
-export interface ImageGenResult {
-  ok: boolean
-  /** Absolute path of the saved PNG */
-  path?: string
-  provider?: ImageGenProvider
-  model?: string
-  error?: string
+export function isImageGenProvider(id: unknown): id is ImageGenProvider {
+  return typeof id === 'string' && id in IMAGE_GEN_PROVIDERS
 }
 
 /**
- * Which backend the agent's image tool currently uses, or null when the user
- * hasn't explicitly enabled one yet (nothing is active by default).
+ * Which backend the agent's image generation currently uses, or null when the
+ * user hasn't explicitly enabled one yet (nothing is active by default).
  */
 export function activeImageGenProvider(): ImageGenProvider | null {
   const p = readAppSettings().imageGen?.provider
-  return p === 'gemini' || p === 'openai' ? p : null
+  return isImageGenProvider(p) ? p : null
 }
 
 /**
  * Effective config for one backend: explicit per-provider settings win, then
  * the legacy flat `imageGen.model` (only for the provider it was saved with),
  * then the catalog defaults. `baseUrl` stays undefined when unconfigured so
- * the provider module can fall back to its env var / official endpoint.
+ * image_gen.py falls back to the backend's official endpoint.
  */
 export function resolveImageGenConfig(provider: ImageGenProvider): {
   model: string
@@ -101,112 +125,82 @@ export function resolveImageGenConfig(provider: ImageGenProvider): {
   }
 }
 
-async function saveImageBytes(
-  bytes: Uint8Array,
-  provider: ImageGenProvider,
-  model: string,
-): Promise<ImageGenResult> {
-  const dir = join(app.getPath('userData'), 'generated-images')
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  await mkdir(dir, { recursive: true })
-  const path = join(dir, `img-${Date.now()}.png`)
-  await writeFile(path, bytes)
-  return { ok: true, path, provider, model }
+/** <userData>/agent — kernel cwd; image_gen.py reads its .env as fallback. */
+function agentDir(): string {
+  return join(app.getPath('userData'), 'agent')
 }
 
-/** Text-to-image using the active backend. */
-export async function generateImage(req: ImageGenRequest): Promise<ImageGenResult> {
-  const provider = req.provider ?? activeImageGenProvider()
-  if (!provider) {
-    return {
-      ok: false,
-      error:
-        'no-active-provider: no image backend enabled — the user can enable one in Settings → Image generation',
-    }
-  }
-  const cfg = resolveImageGenConfig(provider)
-  const model = req.model || cfg.model
-  try {
-    const bytes =
-      provider === 'gemini'
-        ? await generateGeminiImage({ ...req, model, baseUrl: cfg.baseUrl })
-        : await generateOpenAIImage({ ...req, model, baseUrl: cfg.baseUrl })
-    return await saveImageBytes(bytes, provider, model)
-  } catch (err) {
-    return {
-      ok: false,
-      provider,
-      model,
-      error: err instanceof Error ? err.message : String(err),
-    }
-  }
-}
-
-/** Image-to-image / editing (reference images required; mask optional, OpenAI only). */
-export async function editImage(req: ImageGenRequest): Promise<ImageGenResult> {
-  const provider = req.provider ?? activeImageGenProvider()
-  if (!provider) {
-    return {
-      ok: false,
-      error:
-        'no-active-provider: no image backend enabled — the user can enable one in Settings → Image generation',
-    }
-  }
-  if (!req.referenceImages?.length) {
-    return { ok: false, provider, error: 'edit requires at least one input image' }
-  }
-  const cfg = resolveImageGenConfig(provider)
-  const model = req.model || cfg.model
-  try {
-    const bytes =
-      provider === 'gemini'
-        ? await generateGeminiImage({ ...req, model, baseUrl: cfg.baseUrl })
-        : await editOpenAIImage({ ...req, model, baseUrl: cfg.baseUrl })
-    return await saveImageBytes(bytes, provider, model)
-  } catch (err) {
-    return {
-      ok: false,
-      provider,
-      model,
-      error: err instanceof Error ? err.message : String(err),
-    }
-  }
-}
+const TEST_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
- * Connectivity check for the settings UI. OpenAI-compatible relays commonly do
- * not implement per-model metadata reads (some even return HTTP 200 with an
- * error body), so exercise the same generation path used by the product with a
- * minimal low-quality request.
+ * Connectivity check for the settings UI: a real minimal generation through
+ * image_gen.py, using the tested backend's own stored key/baseUrl/model
+ * (injected as process env, which beats the .env fallback — so ANY configured
+ * backend can be tested, not just the active one, and the kernel is never
+ * polluted). Spawning the kernel venv python directly keeps this independent
+ * of any agent session.
  */
 export async function testImageGenConnection(
   provider: ImageGenProvider,
 ): Promise<{ ok: boolean; error?: string }> {
+  const info = IMAGE_GEN_PROVIDERS[provider]
+  if (!info) return { ok: false, error: 'unknown-provider' }
   const apiKey = await imageGenApiKey(provider)
   if (!apiKey) return { ok: false, error: 'no-api-key' }
+
+  // The test runs image_gen.py — make sure the kernel venv + skills exist
+  // (idempotent: a quick import check when already provisioned).
+  const provision = await provisionKernelSkills()
+  if (!provision.ok) return { ok: false, error: provision.error ?? 'kernel-env-not-ready' }
+  const python = resolveKernelPython()
+  if (!existsSync(python)) return { ok: false, error: 'kernel-env-not-ready' }
+
   const cfg = resolveImageGenConfig(provider)
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PYTHONUTF8: '1',
+    PYTHONIOENCODING: 'utf-8',
+    [`${info.envPrefix}_API_KEY`]: apiKey,
+  }
+  if (cfg.baseUrl) env[`${info.envPrefix}_BASE_URL`] = cfg.baseUrl
+  if (cfg.model) env[`${info.envPrefix}_MODEL`] = cfg.model
+
+  const outDir = join(tmpdir(), `byeppt-imagegen-test-${process.pid}`)
+  const code = [
+    'import asyncio, byeppt_pptx_py as pm',
+    `asyncio.run(pm.run('image_gen', prompt='connectivity test: a plain solid blue square',` +
+      ` output=${JSON.stringify(outDir)}, backend=${JSON.stringify(provider)}, aspect_ratio='1:1'))`,
+  ].join('\n')
+
   try {
-    if (provider === 'gemini') {
-      // A minimal generateContent ping: relays (new-api etc.) implement only
-      // this endpoint — model metadata reads and the Interactions API 404.
-      const base = (cfg.baseUrl || process.env.GEMINI_BASE_URL || IMAGE_GEN_PROVIDERS.gemini.defaultBaseUrl).replace(/\/$/, '')
-      const resp = await fetch(`${base}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }] }),
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const child = spawn(python, ['-c', code], {
+        cwd: agentDir(),
+        env,
+        windowsHide: true,
       })
-      if (!resp.ok) throw new Error(`gemini ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 300)}`)
-    } else {
-      await generateOpenAIImage({
-        prompt: 'connectivity test',
-        model: cfg.model,
-        baseUrl: cfg.baseUrl,
-        size: '1024x1024',
-        quality: 'low',
+      let out = ''
+      child.stdout.on('data', (d) => (out += String(d)))
+      child.stderr.on('data', (d) => (out += String(d)))
+      const timer = setTimeout(() => {
+        child.kill()
+        rejectPromise(new Error('timeout: image generation took too long'))
+      }, TEST_TIMEOUT_MS)
+      child.on('error', (err) => {
+        clearTimeout(timer)
+        rejectPromise(err)
       })
-    }
+      child.on('exit', (code) => {
+        clearTimeout(timer)
+        // image_gen.py prints its errors to stdout; the tail has the cause
+        if (code === 0) resolvePromise()
+        else rejectPromise(new Error(out.trim().slice(-300) || `exited ${code}`))
+      })
+    })
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    void rm(outDir, { recursive: true, force: true }).catch(() => {})
   }
 }

@@ -32,6 +32,48 @@ function applyTheme(theme: UiTheme): void {
   else document.documentElement.setAttribute('data-theme', theme)
 }
 
+// Last-resort error surface: without it, any render/effect throw during
+// startup (classically: the renderer calling a slidesApi method that a stale
+// preload bundle never injected) unmounts the whole tree and leaves a blank
+// tab with zero diagnostics.
+class FatalBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null }
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+
+  render(): React.ReactNode {
+    const { error } = this.state
+    if (!error) return this.props.children
+    return (
+      <div
+        style={{
+          padding: 32,
+          fontFamily: 'monospace',
+          fontSize: 13,
+          color: 'var(--text)',
+          background: 'var(--surface)',
+          height: '100vh',
+          boxSizing: 'border-box',
+          overflow: 'auto',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        <strong>ByePPT 渲染层启动失败 / renderer crashed</strong>
+        {'\n\n'}
+        {String(error?.stack ?? error)}
+        {'\n\n'}如果是刚改过 main/preload/shared 代码：等 preload watch 构建完成后重开标签页，或重启
+        app。{'\n'}If you just edited main/preload/shared code: wait for the preload watch build,
+        then reopen the tab or restart the app.
+      </div>
+    )
+  }
+}
+
 async function bootstrap(): Promise<void> {
   let lang: Lang = 'zh'
   let theme: UiTheme = 'system'
@@ -54,9 +96,11 @@ async function bootstrap(): Promise<void> {
   }
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <LocaleProvider initial={lang}>
-        {mode === 'audience' ? <AudienceView /> : <App />}
-      </LocaleProvider>
+      <FatalBoundary>
+        <LocaleProvider initial={lang}>
+          {mode === 'audience' ? <AudienceView /> : <App />}
+        </LocaleProvider>
+      </FatalBoundary>
     </React.StrictMode>,
   )
 }
