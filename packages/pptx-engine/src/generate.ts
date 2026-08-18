@@ -1095,13 +1095,8 @@ export function patchPictureSrcRect(
   return xmlInner.slice(0, insertAt) + srcRectXml + xmlInner.slice(insertAt)
 }
 
-/**
- * In-place patch of a slide's bodyPrefix: replace/inject the <p:bg> under <p:cSld>
- * with a solid color. Returns the new bodyPrefix (the caller writes it back to
- * slide.bodyPrefix and flags a rebuild).
- */
-export function patchSlideBackgroundXml(bodyPrefix: string, color: string): string {
-  const bgXml = `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${hex6(color)}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`
+/** Replace the existing <p:bg> under <p:cSld>, or inject one right after <p:cSld…>. */
+function replaceOrInjectBgXml(bodyPrefix: string, bgXml: string): string {
   const existing = /<p:bg>[\s\S]*?<\/p:bg>|<p:bg\s[^>]*\/>/.exec(bodyPrefix)
   if (existing) {
     return (
@@ -1114,6 +1109,28 @@ export function patchSlideBackgroundXml(bodyPrefix: string, color: string): stri
   if (!cSld) return bodyPrefix
   const at = cSld.index + cSld[0].length
   return bodyPrefix.slice(0, at) + bgXml + bodyPrefix.slice(at)
+}
+
+/**
+ * In-place patch of a slide's bodyPrefix: replace/inject the <p:bg> under <p:cSld>
+ * with a solid color. Returns the new bodyPrefix (the caller writes it back to
+ * slide.bodyPrefix and flags a rebuild).
+ */
+export function patchSlideBackgroundXml(bodyPrefix: string, color: string): string {
+  const bgXml = `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${hex6(color)}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`
+  return replaceOrInjectBgXml(bodyPrefix, bgXml)
+}
+
+/**
+ * Image-background variant: <p:bg> with a blipFill stretching the picture over the
+ * whole page. The rid must already point at a media part registered in the SLIDE's
+ * rels (slide-level backgrounds resolve rIds against the slide part).
+ */
+export function patchSlideBackgroundImageXml(bodyPrefix: string, rid: string): string {
+  const bgXml =
+    `<p:bg><p:bgPr><a:blipFill><a:blip r:embed="${rid}"/>` +
+    '<a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>'
+  return replaceOrInjectBgXml(bodyPrefix, bgXml)
 }
 
 // ── Slide transition patch ──────────────────────────────────────────────

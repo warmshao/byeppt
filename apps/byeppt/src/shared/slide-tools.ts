@@ -605,14 +605,19 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
   },
   {
     name: 'set_slide_background',
-    description: 'Set a solid page background color. slideIndex=-1 applies to all pages.',
+    description:
+      'Set the page background: a solid color OR a full-bleed image (imagePath — absolute path of a local image, e.g. one generated into deck_work/images). slideIndex=-1 applies to all pages. ALWAYS prefer this over exporting the deck and hand-editing the XML.',
     parameters: {
       type: 'object',
       properties: {
         slideIndex: { type: 'integer', description: 'Page number (0-based); -1 = all pages' },
-        color: { type: 'string', description: '#RRGGBB' },
+        color: { type: 'string', description: '#RRGGBB solid background' },
+        imagePath: {
+          type: 'string',
+          description: 'Absolute path of a local image file; sets a full-bleed picture background (wins over color)',
+        },
       },
-      required: ['slideIndex', 'color'],
+      required: ['slideIndex'],
     },
     mutating: true,
   },
@@ -646,7 +651,7 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
   {
     name: 'import_pptx_slides',
     description:
-      'Merge every slide of a source .pptx file into the current deck (one undo step). Primary use: the SVG escape hatch — after converting an authored SVG to pptx with the byeppt-pptx-py skill, merge the result here. Imported slides inherit the current deck layout/theme chain.',
+      'Merge every slide of a source .pptx file into the current deck (one undo step). Primary use: the SVG escape hatch — after converting an authored SVG to pptx with the byeppt-pptx-py skill, merge the result here. Imported slides inherit the current deck layout/theme chain. When revising EXISTING pages, convert one page at a time and use replace_at — NEVER append a full-deck re-export and delete the surplus pages afterwards.',
     parameters: {
       type: 'object',
       properties: {
@@ -657,6 +662,11 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
           description: "'append' (default): add at the end; 'insert_at': insert starting at atIndex; 'replace_at': replace the single slide at atIndex with the source's first slide",
         },
         atIndex: { type: 'integer', description: '0-based target position (insert_at/replace_at)' },
+        deckName: {
+          type: 'string',
+          description:
+            "Short human-readable deck name (no extension). Only meaningful on the FIRST import of a never-saved deck: the auto-saved draft file is named after it. Ignored when the deck already has a file.",
+        },
       },
       required: ['path'],
     },

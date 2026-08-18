@@ -381,10 +381,13 @@ export interface EditStrokeOp {
   groupId?: string
 }
 
-/** Solid page background; slideIndex=-1 applies to all pages. */
+/** Page background: solid color OR a full-bleed image; slideIndex=-1 applies to all pages. */
 export interface EditBackgroundOp {
   slideIndex: number
-  color: string
+  /** #RRGGBB; omit when imagePath is given */
+  color?: string
+  /** Absolute path of a local image file (read by the main process); wins over color */
+  imagePath?: string
   fitWidthPx: number
 }
 

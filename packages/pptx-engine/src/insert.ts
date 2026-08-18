@@ -223,6 +223,11 @@ const IMAGE_MIME: Record<string, string> = {
 
 const IMAGE_REL_TYPE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image'
 
+/** MIME for a supported raster extension (lowercased input), undefined if unsupported. */
+export function imageMimeForExt(extRaw: string): string | undefined {
+  return IMAGE_MIME[extRaw.toLowerCase()]
+}
+
 export interface NewPictureOptions {
   /** Image bytes */
   bytes: Uint8Array
@@ -253,7 +258,7 @@ export function addImageMediaAndRel(
 ): { rid: string; mediaPath: string } | null {
   const { archive } = opened
   const ext = extRaw.toLowerCase()
-  const mime = IMAGE_MIME[ext]
+  const mime = imageMimeForExt(ext)
   if (!mime) return null
 
   // 1) media part: number = current max + 1

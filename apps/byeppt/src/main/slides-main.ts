@@ -134,6 +134,8 @@ import {
   setElementParagraphFormat,
   setGroupChildParagraphFormat,
   setSlideBackground,
+  setSlideBackgroundImage,
+  imageMimeForExt,
   setSlideAdvanceTime,
   setSlideHidden,
   setSlideNotes,
@@ -740,40 +742,40 @@ function pickDraftPath(draftsDir: string, deckName?: string): string {
 }
 
 /**
- * Auto-save the draft to <Documents>/byeppt/<name>.pptx after AI generation completes.
- * Append mode reuses the session's existing draft path (overwrite); replace mode generates a
- * new filename. On successful write, update session.path, pushRecent, slidesOpenedHook.
- * On write failure, degrade silently (console.warn) without blocking the in-memory session.
+ * Persist the deck to the drafts dir after an AI generation/import — but ONLY for
+ * decks that have no file of their own yet (or already live in the drafts dir).
+ * A deck the user opened from elsewhere must never be silently copied into the
+ * drafts dir, and its save target must stay the original file: those edits remain
+ * in-memory/dirty until the user saves (or autosaves) to the original path.
+ * `created` tells the caller a brand-new draft file appeared (the renderer needs
+ * the new path pushed to it). Write failures degrade silently (console.warn).
  */
 async function saveDraftAfterGenerate(
   wc: WebContents,
   session: Session,
   bytes: Uint8Array,
-  mode: 'replace' | 'append',
   deckName?: string,
-): Promise<void> {
+): Promise<{ persisted: boolean; created: boolean }> {
   try {
     const draftsDir = getDraftsDir()
-    // Ensure the directory exists
-    if (!existsSync(draftsDir)) mkdirSync(draftsDir, { recursive: true })
-
-    // Append mode: overwrite if the session already has a draft path; otherwise create a new file too
-    let draftPath: string
-    if (mode === 'append' && session.path && session.path.startsWith(draftsDir)) {
-      draftPath = session.path
-    } else {
-      draftPath = pickDraftPath(draftsDir, deckName)
+    if (session.path && !session.path.startsWith(draftsDir)) {
+      return { persisted: false, created: false }
     }
-
+    if (!existsSync(draftsDir)) mkdirSync(draftsDir, { recursive: true })
+    // Existing draft: overwrite in place; unsaved deck: pick a fresh draft name
+    const created = !session.path
+    const draftPath = session.path || pickDraftPath(draftsDir, deckName)
     await writeFile(draftPath, Buffer.from(bytes))
     session.path = draftPath
     await pushRecent(draftPath)
     slidesOpenedHook?.(wc, draftPath)
+    return { persisted: true, created }
   } catch (err) {
     console.warn(
       '[slides] Failed to persist AI-generated draft to disk; the in-memory session still works:',
       err,
     )
+    return { persisted: false, created: false }
   }
 }
 
@@ -1401,10 +1403,25 @@ export function registerSlidesIpc(): void {
         }
         session.fitWidthPx = op.fitWidthPx
         const bytes = await savePptx(opened)
-        await saveDraftAfterGenerate(e.sender, session, bytes, 'append', op.deckName)
-        if (session.path) {
+        const { persisted, created } = await saveDraftAfterGenerate(
+          e.sender,
+          session,
+          bytes,
+          op.deckName,
+        )
+        if (persisted) {
+          // Round-trip through the saved bytes so the in-memory model matches the file
           session.opened = await openPptx(bytes)
           session.metaDirty = false
+          if (created && session.path) {
+            // The deck just got its first real path — push it to the renderer
+            // (title bar, autosave gate, agent chat rebind all key off it)
+            e.sender.send('slides:renamed', session.path)
+          }
+        } else {
+          // User-owned file: nothing was written, the import exists only in
+          // memory — the deck must read as dirty (close prompt / autosave)
+          session.metaDirty = true
         }
         return {
           path: session.path,
@@ -1647,16 +1664,34 @@ export function registerSlidesIpc(): void {
     }
   }
 
-  ipcMain.handle('slides:edit-background', (e, op: EditBackgroundOp) => {
+  ipcMain.handle('slides:edit-background', async (e, op: EditBackgroundOp) => {
     const session = sessions.get(e.sender.id)
     if (!session) return null
     const slides = session.opened.deck.slides
     const targets = op.slideIndex === -1 ? slides : [slides[op.slideIndex]].filter(Boolean)
     if (targets.length === 0) return null
+    // Image background: the file is read + validated BEFORE any mutation so a bad
+    // path/format never leaves a stray undo step
+    let image: { bytes: Uint8Array; ext: string } | null = null
+    if (op.imagePath) {
+      const ext = op.imagePath.split('.').pop()?.toLowerCase() ?? ''
+      if (!imageMimeForExt(ext)) return null
+      try {
+        image = { bytes: new Uint8Array(await readFile(op.imagePath)), ext }
+      } catch {
+        return null
+      }
+    } else if (!op.color) {
+      return null
+    }
     pushHistory(session)
     for (const s of targets) {
-      setSlideBackground(s!, op.color)
-      recolorFullBleedBackdrops(s!, session.opened.deck.size, op.color)
+      if (image) {
+        setSlideBackgroundImage(session.opened, s!, image.bytes, image.ext)
+      } else {
+        setSlideBackground(s!, op.color!)
+        recolorFullBleedBackdrops(s!, session.opened.deck.size, op.color!)
+      }
     }
     session.fitWidthPx = op.fitWidthPx
     return buildAllRenderSlides(session.opened, op.fitWidthPx)

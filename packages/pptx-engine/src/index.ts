@@ -18,6 +18,7 @@ import {
   patchPictureSrcRect,
   patchSlideAdvanceTimeXml,
   patchSlideBackgroundXml,
+  patchSlideBackgroundImageXml,
   patchSlideHiddenXml,
   patchSlideTransitionXml,
   patchTextElementXml,
@@ -102,6 +103,7 @@ export {
   patchPictureSrcRect,
   patchSlideAdvanceTimeXml,
   patchSlideBackgroundXml,
+  patchSlideBackgroundImageXml,
   patchSlideHiddenXml,
   patchSlideTransitionXml,
   readSlideAdvanceTimeXml,
@@ -120,6 +122,7 @@ export {
   buildTableXml,
   buildGrpSpXml,
   calcBoundingBox,
+  imageMimeForExt,
   type NewElementOptions,
   type NewPictureOptions,
   type NewShapeKind,
@@ -702,6 +705,26 @@ export function setSlideBackground(slide: Slide, color: string): void {
   slide.bodyPrefix = patchSlideBackgroundXml(slide.bodyPrefix, color)
   slide.background = { type: 'solid', color }
   slide.structureDirty = true
+}
+
+/**
+ * Set a picture slide background: land the image as a media part + slide rel, then
+ * point <p:bg> at it (stretch/fillRect = full-bleed). The slide part owns the rel,
+ * matching how slide-level backgrounds resolve rIds on parse. Returns false for
+ * unsupported image formats.
+ */
+export function setSlideBackgroundImage(
+  opened: OpenedPptx,
+  slide: Slide,
+  bytes: Uint8Array,
+  ext: string,
+): boolean {
+  const added = addImageMediaAndRel(opened, slide, bytes, ext)
+  if (!added) return false
+  slide.bodyPrefix = patchSlideBackgroundImageXml(slide.bodyPrefix, added.rid)
+  slide.background = { type: 'image', mediaRef: added.mediaPath }
+  slide.structureDirty = true
+  return true
 }
 
 /**

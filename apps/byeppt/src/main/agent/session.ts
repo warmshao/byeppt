@@ -613,6 +613,8 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
         : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
       const wcId = e.sender.id
       const prev = tabDeck.get(wcId)
+      // The renderer defers rebinds while a run streams (ChatPanel), so this
+      // fold only ever disposes an IDLE session — disposing mid-run would kill it.
       if (args.filePath && prev && prev.deckKey !== chatId && prev.deckKey.startsWith('unsaved-')) {
         const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
         await disposeDeck(prev.deckKey)

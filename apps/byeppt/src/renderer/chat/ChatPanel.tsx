@@ -696,10 +696,16 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
 
   // Bind on mount and re-bind when the deck's file path changes — an unsaved
   // deck that just got saved is folded into the file's chat on the main side.
+  // NEVER rebind mid-run: the fold disposes the live session, so a path change
+  // landing while the agent streams (draft auto-save, rename, save-as) would
+  // kill the run. The streaming dep re-fires this effect when the run ends,
+  // with the latest filePath.
+  const streaming = status?.streaming ?? false
   useEffect(() => {
+    if (streaming) return
     deckKeyRef.current = null
     void bindDeck()
-  }, [bindDeck])
+  }, [bindDeck, streaming])
 
   useEffect(() => {
     void window.agentApi.status().then(setStatus)
@@ -1088,7 +1094,6 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
     [resetStreamState, bindDeck],
   )
 
-  const streaming = status?.streaming ?? false
   const canSend = !!(draft.trim() || pending.length)
 
   return (

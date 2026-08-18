@@ -1075,6 +1075,9 @@ async function executeTool(
         fitWidthPx: access.fitWidthPx,
         mode,
         ...(call.input.atIndex !== undefined ? { atIndex: Number(call.input.atIndex) } : {}),
+        ...(typeof call.input.deckName === 'string' && call.input.deckName
+          ? { deckName: call.input.deckName }
+          : {}),
       })
       if ('error' in r) return fail(t('aiFailInsertImage'), r.error ?? 'import failed')
       access.applyDeck(r.slides, r.firstIndex ?? r.slides.length - 1)
@@ -1451,23 +1454,32 @@ async function executeTool(
 
     case 'set_slide_background': {
       const idx = Number(call.input.slideIndex)
+      const imagePath = call.input.imagePath ? String(call.input.imagePath) : ''
       const color = String(call.input.color ?? '')
       if (idx !== -1 && !slides[idx])
         return fail(t('aiFailBackground'), `slideIndex out of range (0-${slides.length - 1} or -1)`)
-      if (!/^#?[0-9a-fA-F]{6}$/.test(color))
-        return fail(t('aiFailBackground'), 'color must be #RRGGBB')
+      if (!imagePath && !/^#?[0-9a-fA-F]{6}$/.test(color))
+        return fail(t('aiFailBackground'), 'provide color (#RRGGBB) or imagePath')
       const r = await window.slidesApi.editBackground({
         slideIndex: idx,
-        color: color.startsWith('#') ? color : `#${color}`,
+        ...(imagePath
+          ? { imagePath }
+          : { color: color.startsWith('#') ? color : `#${color}` }),
         fitWidthPx: access.fitWidthPx,
       })
-      if (!r) return fail(t('aiFailBackground'), 'Setting failed')
+      if (!r)
+        return fail(
+          t('aiFailBackground'),
+          imagePath
+            ? 'Setting failed (unreadable file or unsupported format — use png/jpg/gif/bmp/webp/tif)'
+            : 'Setting failed',
+        )
       access.applyDeck(r)
       return {
         output:
           idx === -1
-            ? `Set the background of all ${r.length} pages to ${color}.`
-            : `Set the background of page ${idx + 1} to ${color}.`,
+            ? `Set the background of all ${r.length} pages${imagePath ? ' to the image' : ` to ${color}`}.`
+            : `Set the background of page ${idx + 1}${imagePath ? ' to the image' : ` to ${color}`}.`,
         mutated: true,
         summary: idx === -1 ? t('aiSumBackgroundAll') : t('aiSumBackground', { n: idx + 1 }),
       }

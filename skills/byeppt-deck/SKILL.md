@@ -104,6 +104,12 @@ When a page needs rework (user feedback or visual self-check):
 3. `import_pptx_slides(path=pptx, mode="replace_at", atIndex=<0-based>)` -
    the canvas refreshes just that page. Update `lastImportedDeckRevision`.
 
+> **Never re-import a full-deck export with `append` and delete the surplus
+> pages afterwards** — it doubles the page count mid-run and wrecks undo
+> history. Revisions always go through `replace_at`, one page at a time.
+> For a full-page background image, skip the export/XML-edit/re-import detour
+> entirely: `set_slide_background(slideIndex, imagePath=...)` sets it natively.
+
 ### Stage 5 - Deck QC + finalize
 
 1. Visual pass: `view_slide` each page (or at least covers, charts, dense
