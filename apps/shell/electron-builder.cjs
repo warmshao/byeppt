@@ -93,6 +93,9 @@ const config = {
     output: 'release',
   },
   files: ['out/**'],
+  // The kernel pip-installs the vsurf SDK's builtin python skills at runtime,
+  // and pip cannot read inside an asar archive — ship the package unpacked.
+  asarUnpack: ['node_modules/@warmshao/vsurf/**'],
   extraResources: [
     {
       from: '../../node_modules/electron/dist/LICENSES.chromium.html',

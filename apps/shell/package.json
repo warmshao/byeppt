@@ -30,7 +30,6 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.4",
-    "@warmshao/vsurf": "^0.7.4",
     "electron": "^43.3.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
@@ -40,5 +39,9 @@
     "vite": "^7.3.1",
     "vitest": "^4.1.10"
   },
-  "author": "byeppt"
+  "author": "byeppt",
+  "dependencies": {
+    "@warmshao/vsurf": "^0.7.4",
+    "vsurf-ai": "^0.7.4"
+  }
 }

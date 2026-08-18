@@ -78,7 +78,11 @@ system mode).
   launch.
 - Agent packaging (verified via `electron-builder --dir`): npm deps such as
   `@warmshao/vsurf` stay externalized and are collected into `app.asar` from
-  the hoisted workspace root automatically. `node_modules/@warmshao/vsurf/**`
+  the hoisted workspace root automatically. This only works because they are
+  in the packaged app's `dependencies` — electron-builder ignores devDeps.
+  (The shell once had `@warmshao/vsurf` in devDependencies: dev resolved it
+  from the root node_modules, but the packaged app shipped no SDK at all and
+  Settings showed "未发现供应商(代理 SDK 未加载)".) `node_modules/@warmshao/vsurf/**`
   is in `asarUnpack` because its builtin python skills are pip-installed by
   the kernel at runtime (pip can't read inside asar). The repo `skills/` tree
   ships via `extraResources` → `resources/skills` (top-level `*.py` excluded —
