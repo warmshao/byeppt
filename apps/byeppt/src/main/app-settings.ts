@@ -36,6 +36,12 @@ export interface AppSettings {
   agentModel?: { provider: string; id: string }
   /** per-provider model/baseUrl/test state, keyed by provider id */
   agentProviders?: Record<string, AgentProviderConfig>
+  /**
+   * Network proxy (Settings → 通用). enabled=false → always direct;
+   * enabled (default) + url → that proxy; enabled + empty url → env vars,
+   * then the OS system proxy.
+   */
+  proxy?: { enabled?: boolean; url?: string }
   /** Image generation defaults */
   imageGen?: {
     /** active backend (one of the imagegen registry ids: gemini/openai/qwen/zhipu/volcengine) */

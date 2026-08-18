@@ -65,6 +65,10 @@
           "**/*",
           "!*.py"
         ]
+      },
+      {
+        "from": "../../runtime/kernel/${platform}-${arch}",
+        "to": "kernel-runtime"
       }
     ],
     "fileAssociations": [
@@ -80,7 +84,8 @@
         "dmg"
       ],
       "category": "public.app-category.productivity",
-      "identity": null
+      "identity": null,
+      "minimumSystemVersion": "12.0"
     },
     "win": {
       "target": [

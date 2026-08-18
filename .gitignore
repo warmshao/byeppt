@@ -8,3 +8,4 @@ skills/**/build/
 *.egg-info/
 __pycache__/
 apps/byeppt/resources/
+runtime/

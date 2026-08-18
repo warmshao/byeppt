@@ -127,6 +127,118 @@ function Field({
   )
 }
 
+/**
+ * 通用 → 网络代理: enable checkbox + editable proxy URL + connectivity test.
+ * An empty URL means "auto" (env vars, then the OS system proxy) — the hint
+ * line shows what auto currently resolves to. Persisted on toggle / blur /
+ * Enter via home:set-proxy; the main process re-applies it immediately.
+ */
+function ProxyField() {
+  const { t } = useI18n()
+  const [enabled, setEnabled] = useState(true)
+  const [url, setUrl] = useState('')
+  const [draft, setDraft] = useState('')
+  const [detected, setDetected] = useState<string | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testOk, setTestOk] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void window.aiOffice.getProxy?.().then((p) => {
+      if (!alive) return
+      setEnabled(p.enabled)
+      setUrl(p.url)
+      setDraft(p.url)
+      setDetected(p.detected)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const persist = (nextEnabled: boolean, nextUrl: string) => {
+    setEnabled(nextEnabled)
+    setUrl(nextUrl)
+    setTestOk(null)
+    void window.aiOffice.setProxy({ enabled: nextEnabled, url: nextUrl })
+  }
+
+  const commitUrl = () => {
+    const next = draft.trim()
+    if (next !== url) persist(enabled, next)
+  }
+
+  const test = () => {
+    setTesting(true)
+    setTestOk(null)
+    // empty draft: probe what would actually be used (auto-detected, else direct)
+    void window.aiOffice
+      .testProxy(draft.trim() || detected || '')
+      .then((r) => {
+        setTesting(false)
+        setTestOk(r.ok)
+      })
+      .catch(() => {
+        setTesting(false)
+        setTestOk(false)
+      })
+  }
+
+  return (
+    <>
+      <div className="set-field">
+        <div className="set-field-text">
+          <label className="set-field-label" htmlFor="set-proxy-enable">
+            {t('setProxy')}
+          </label>
+        </div>
+        <label className="set-check">
+          <input
+            id="set-proxy-enable"
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => persist(e.target.checked, url)}
+          />
+          <span>{t('setProxyEnable')}</span>
+        </label>
+      </div>
+      {enabled && (
+        <div className="set-field set-field-col">
+          <div className="set-proxy-row">
+            <input
+              className="set-input"
+              value={draft}
+              placeholder={detected ?? 'http://127.0.0.1:7890'}
+              spellCheck={false}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitUrl}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              }}
+            />
+            <button className="set-btn" onClick={test} disabled={testing}>
+              {testing ? '…' : t('setKeyTest')}
+            </button>
+            {testOk === true && (
+              <span className="set-proxy-mark ok" data-tip={t('setKeyTestOk')}>
+                ✓
+              </span>
+            )}
+            {testOk === false && (
+              <span className="set-proxy-mark fail" data-tip={t('setKeyTestFail')}>
+                ✗
+              </span>
+            )}
+          </div>
+          <div className="set-proxy-hint">
+            {detected ? `${t('setProxyAuto')}: ${detected}` : t('setProxyNoDetect')}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 export interface SettingsModalProps {
   onClose: () => void
   /** deep-linked section (e.g. the AI panel's "model settings" link → 'providers') */
@@ -264,6 +376,7 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
                     </select>
                   </span>
                 </div>
+                <ProxyField />
                 <Field
                   label={t('saveLocation')}
                   value={saveDir || '—'}

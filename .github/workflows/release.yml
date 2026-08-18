@@ -1,0 +1,146 @@
+# Release builds: mac dmg (arm64 + x64), win nsis setup (x64) and linux
+# AppImage (x64) — one format per platform, each carrying the offline kernel
+# runtime (~170-235MB, fetched per target by tools/fetch-kernel-runtime.mjs
+# via the shell electron-builder beforePack).
+#
+# Trigger: push a v* tag, or run manually from the Actions tab.
+#
+# Signing is optional and secret-gated (see apps/shell/electron-builder.cjs):
+#   macOS  — CSC_LINK (base64 .p12) + CSC_KEY_PASSWORD for signing,
+#            APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (App Store
+#            Connect API key, .p8) for notarization. Without them the dmg is
+#            built unsigned.
+#   Windows — CSC_LINK + CSC_KEY_PASSWORD (or Azure Trusted Signing env) when
+#            a certificate is available; otherwise unsigned.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache kernel runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime
+          # the pins live at the top of the fetch script; bumping them
+          # invalidates the cache automatically
+          key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      - run: npm run dist:mac:arm64
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: byeppt-mac-arm64
+          path: apps/shell/release/*.dmg
+          if-no-files-found: error
+
+  mac-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache kernel runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime
+          key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      - run: npm run dist:mac:x64
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: byeppt-mac-x64
+          path: apps/shell/release/*.dmg
+          if-no-files-found: error
+
+  win-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache kernel runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime
+          key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      - run: npm run dist:win
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: byeppt-win-x64
+          path: apps/shell/release/*.exe
+          if-no-files-found: error
+
+  linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache kernel runtime
+        uses: actions/cache@v4
+        with:
+          path: runtime
+          key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      - run: npm run dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: byeppt-linux-x64
+          path: apps/shell/release/*.AppImage
+          if-no-files-found: error
+
+  # Tag pushes only: gather all four build artifacts into one GitHub Release.
+  # (GitHub renders each asset's sha256 + size on the release page itself —
+  # no manual checksum files needed.) Manual workflow_dispatch runs stop at
+  # the artifacts above.
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [mac-arm64, mac-x64, win-x64, linux-x64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: byeppt-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

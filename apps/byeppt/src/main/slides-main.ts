@@ -237,6 +237,7 @@ import { buildPrintDocumentHtml } from '../shared/print-html'
 
 import { tm } from './i18n-main'
 import { readAppSettings, updateAppSettings } from './app-settings'
+import { applyProxyToMainProcess } from './net-policy'
 import { registerAgentIpc } from './agent/session'
 import { registerImageGenIpc } from './imagegen/ipc'
 import { tiffToPng } from './tiff-decode'
@@ -4029,50 +4030,6 @@ export function installSlidesMenu(): void {
   Menu.setApplicationMenu(buildSlidesMenu())
 }
 
-/**
- * Attach a proxy to the main process's global fetch. Environment variables take priority;
- * otherwise, after app ready, read the system proxy via session.resolveProxy() (the critical
- * path for packaged builds launched by double-click).
- */
-async function applyMainProcessProxy(): Promise<void> {
-  const setDispatcher = async (proxyUrl: string) => {
-    try {
-      const { ProxyAgent, setGlobalDispatcher } = await import('undici')
-      setGlobalDispatcher(new ProxyAgent(proxyUrl))
-      // strip user:pass credentials before logging
-      console.log('[proxy] main-process fetch via', proxyUrl.replace(/\/\/[^@/]*@/, '//***@'))
-    } catch (e) {
-      console.warn('[proxy] failed to set ProxyAgent:', e)
-    }
-  }
-  const envProxy =
-    process.env.HTTPS_PROXY ||
-    process.env.https_proxy ||
-    process.env.HTTP_PROXY ||
-    process.env.http_proxy ||
-    process.env.ALL_PROXY ||
-    process.env.all_proxy
-  if (envProxy) {
-    await setDispatcher(envProxy)
-    return
-  }
-  // No environment variables: read the system proxy (requires app ready)
-  try {
-    await app.whenReady()
-    // PAC/rule proxies answer per-host: probe a representative API host
-    const resolved = await electronSession.defaultSession.resolveProxy('https://api.openai.com/')
-    // resolveProxy returns strings like "PROXY 127.0.0.1:1087" or "DIRECT"
-    const m = /PROXY\s+([^;]+)/i.exec(resolved || '')
-    if (m) {
-      await setDispatcher(`http://${m[1].trim()}`)
-    } else {
-      console.log('[proxy] system proxy = DIRECT, no dispatcher set')
-    }
-  } catch (e) {
-    console.warn('[proxy] resolveProxy failed:', e)
-  }
-}
-
 export function startSlidesStandalone(): void {
   installNavigationGuard(app)
   installContextMenu(app, () => contextMenuLabels(getUiLang()))
@@ -4090,12 +4047,9 @@ export function startSlidesStandalone(): void {
   }
   // The main process's Node fetch (undici) does not use the system proxy by default, so access
   // from mainland China to overseas LLM APIs like api.anthropic.com hits ETIMEDOUT on direct
-  // connections. Route the global dispatcher through the proxy; the renderer (Chromium) uses
-  // the system proxy on its own and is unaffected. Prefer environment variables (terminal
-  // launches); packaged builds launched by double-click don't inherit terminal environment
-  // variables, so fall back to Electron session.resolveProxy() reading the system proxy
-  // settings.
-  void applyMainProcessProxy()
+  // connections. The unified network policy (net-policy.ts) honors the Settings proxy
+  // override, then env vars, then the OS system proxy, and also feeds child processes.
+  void applyProxyToMainProcess()
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return

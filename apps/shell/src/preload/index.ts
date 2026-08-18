@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   HomeApi,
+  ProxyState,
   RecentEntry,
   RecentPage,
   RenameResult,
@@ -137,6 +138,25 @@ const homeApi: HomeApi = {
     }
     ipcRenderer.on('app:theme-changed', listener)
     return () => ipcRenderer.removeListener('app:theme-changed', listener)
+  },
+  async getProxy() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getProxy)
+    const r = (result ?? {}) as Partial<ProxyState>
+    return {
+      enabled: r.enabled !== false,
+      url: typeof r.url === 'string' ? r.url : '',
+      detected: typeof r.detected === 'string' ? r.detected : null,
+    }
+  },
+  async setProxy(pref) {
+    if (typeof pref?.enabled !== 'boolean' || typeof pref?.url !== 'string')
+      throw new Error('Invalid proxy preference.')
+    await ipcRenderer.invoke(HOME_CHANNELS.setProxy, { enabled: pref.enabled, url: pref.url })
+  },
+  async testProxy(url) {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.testProxy, url)
+    const r = (result ?? {}) as { ok?: boolean; error?: string }
+    return { ok: r.ok === true, error: r.error }
   },
   onOpenAgentSettings(handler) {
     const listener = () => handler()

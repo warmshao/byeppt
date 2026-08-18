@@ -48,7 +48,12 @@ import {
   slidesFileRenamed,
 } from '../../../byeppt/src/main/slides-main'
 import { registerAgentIpc } from '../../../byeppt/src/main/agent/session'
-import type { RecentEntry, RecentPage, RenameResult, UiTheme } from '../shared/home-api'
+import {
+  applyProxyToMainProcess as installMainProcessProxy,
+  resolveEffectiveProxy,
+  testProxyConnection,
+} from '../../../byeppt/src/main/net-policy'
+import type { RecentEntry, RecentPage, RenameResult, UiTheme, ProxyState } from '../shared/home-api'
 import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
@@ -517,6 +522,33 @@ function registerHomeIpc(): void {
     for (const wc of webContents.getAllWebContents()) wc.send('app:theme-changed', theme)
   })
 
+  // Network proxy preference (Settings → 通用). Stored under `proxy` in
+  // app-settings.json; applied process-wide by byeppt's net-policy.
+  ipcMain.handle(HOME_CHANNELS.getProxy, async (): Promise<ProxyState> => {
+    const saved = (readAppSettings(APP_SETTINGS_PATH()) as { proxy?: { enabled?: boolean; url?: string } }).proxy
+    // show the user what "auto" resolves to (env vars, then the OS system proxy)
+    const effective = await resolveEffectiveProxy()
+    return {
+      enabled: saved?.enabled !== false,
+      url: saved?.url ?? '',
+      detected: effective.source === 'env' || effective.source === 'system' ? effective.url : null,
+    }
+  })
+
+  ipcMain.handle(HOME_CHANNELS.setProxy, async (_event, pref: unknown) => {
+    const p = pref as { enabled?: unknown; url?: unknown } | null
+    if (typeof p?.enabled !== 'boolean' || typeof p?.url !== 'string') return
+    const url = p.url.trim()
+    if (url && !/^https?:\/\//i.test(url) && !/^socks5?:\/\//i.test(url)) return
+    writeAppSetting(APP_SETTINGS_PATH(), 'proxy', { enabled: p.enabled, url })
+    await installMainProcessProxy()
+  })
+
+  ipcMain.handle(HOME_CHANNELS.testProxy, async (_event, url: unknown) => {
+    const candidate = typeof url === 'string' && url.trim() ? url.trim() : null
+    return testProxyConnection(candidate)
+  })
+
   // effective folder where new/untitled files land
   ipcMain.handle(HOME_CHANNELS.getDefaultSaveDir, (): string => defaultSaveDir())
 
@@ -750,40 +782,9 @@ function installDockMenu(): void {
 }
 
 // On mainland-China networks the main process's Node fetch (undici) bypasses the system proxy,
-// so direct calls to overseas LLM APIs time out or get region-blocked. Prefer proxy env vars
-// (terminal launch); a packaged app launched from Finder inherits no shell env vars, so fall
-// back to the system HTTP proxy. The renderer uses Chromium's system proxy and is unaffected.
-// Same bootstrap as slides-main startSlidesStandalone.
-async function installMainProcessProxy(): Promise<void> {
-  let proxyUrl = [
-    process.env.HTTPS_PROXY,
-    process.env.https_proxy,
-    process.env.HTTP_PROXY,
-    process.env.http_proxy,
-    process.env.ALL_PROXY,
-    process.env.all_proxy,
-  ].find((v) => v && /^https?:\/\//.test(v))
-  if (!proxyUrl) {
-    try {
-      // PAC/rule proxies answer per-host: probe a host the agent's LLM calls target
-      const resolved = await session.defaultSession.resolveProxy('https://api.anthropic.com/')
-      const m = /PROXY\s+([^;\s]+)/.exec(resolved)
-      if (m) proxyUrl = `http://${m[1]}`
-    } catch {
-      /* no system proxy */
-    }
-  }
-  if (!proxyUrl) return
-  try {
-    const { ProxyAgent, setGlobalDispatcher } = await import('undici')
-    setGlobalDispatcher(new ProxyAgent(proxyUrl))
-    // strip user:pass credentials before logging
-    console.log('[proxy] main-process fetch via', proxyUrl.replace(/\/\/[^@/]*@/, '//***@'))
-  } catch (e) {
-    console.warn('[proxy] failed to set ProxyAgent:', e)
-  }
-}
-
+// so direct calls to overseas LLM APIs time out or get region-blocked. The unified network
+// policy (byeppt's net-policy.ts) honors the Settings → 通用 proxy override first, then env
+// vars, then the OS system proxy, and also feeds the kernel bootstrap's child processes.
 // ---- lifecycle (the shell is the only owner) ----
 
 let pendingLaunchPath = supportedFileIn(process.argv) ?? unsupportedFileIn(process.argv)

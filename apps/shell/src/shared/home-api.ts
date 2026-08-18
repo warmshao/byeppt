@@ -102,6 +102,23 @@ export interface HomeApi {
   onThemeChanged(handler: (theme: UiTheme) => void): () => void
   /** a slides tab asked to open the agent model settings (AI panel link) */
   onOpenAgentSettings(handler: () => void): () => void
+  /** proxy preference (persisted in userData/app-settings.json) + the auto-detected value for the UI hint */
+  getProxy(): Promise<ProxyState>
+  /** persist the proxy preference and re-apply it process-wide */
+  setProxy(pref: ProxyPreference): Promise<void>
+  /** connectivity probe through a candidate proxy URL (null/'' = direct) */
+  testProxy(url: string): Promise<{ ok: boolean; error?: string }>
+}
+
+/** User's proxy preference: enabled=false → direct; url empty → auto (env/system). */
+export interface ProxyPreference {
+  enabled: boolean
+  url: string
+}
+
+export interface ProxyState extends ProxyPreference {
+  /** the proxy auto-detection would use when url is empty (null = none found) */
+  detected: string | null
 }
 
 export interface RenameResult {
@@ -170,6 +187,9 @@ export const HOME_CHANNELS = {
   getAppVersion: 'home:get-app-version',
   getTheme: 'home:get-theme',
   setTheme: 'home:set-theme',
+  getProxy: 'home:get-proxy',
+  setProxy: 'home:set-proxy',
+  testProxy: 'home:test-proxy',
   getDefaultSaveDir: 'home:get-default-save-dir',
   pickDefaultSaveDir: 'home:pick-default-save-dir',
 } as const

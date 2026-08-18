@@ -1,26 +1,36 @@
 /**
  * One-time kernel environment bootstrap for the vsurf IPython kernel.
  *
- * 1. `ensureUv` — make sure the `uv` binary exists so vsurf can build its
- *    kernel venv. vsurf refuses to bootstrap on Windows when uv is missing
- *    (its auto-installer is a POSIX `sh` script and the non-TTY default
- *    throws). We try existing uv, then `pip install --user uv` (no bundled
- *    binary in the repo), then the official Windows installer.
- * 2. `provisionKernelSkills` — install `byeppt-pptx-py` (and its pyproject
- *    dependencies: python-pptx, skia-pathops, uharfbuzz, google-genai, ...)
- *    into the kernel venv by bootstrapping it with the detected python skills.
- *    Runs once per machine (skipped when the deps are already importable).
+ * Three paths, in priority order:
+ * 1. VSURF_KERNEL_PYTHON set → user-supplied env, no provisioning.
+ * 2. Bundled offline runtime (packaged builds; resources/kernel-runtime with
+ *    pinned uv + CPython tarball + wheelhouse, fetched per platform/arch at
+ *    pack time by tools/fetch-kernel-runtime.mjs): copy the bundled uv, seed
+ *    uv's managed python dir, then run vsurf's normal bootstrap under
+ *    UV_OFFLINE + UV_FIND_LINKS + UV_PYTHON_PREFERENCE=only-managed — zero
+ *    network, strictly bundled-only (the user's uv/system Python are never
+ *    used, and there is NO online fallback: a broken bundle is a packaging
+ *    bug and must surface as an error). See provisionOfflineRuntime.
+ * 3. Online path (dev checkouts without a fetched runtime, and linux builds
+ *    that ship no runtime): `ensureUv` — make sure the `uv` binary exists
+ *    (existing uv, then `pip install --user uv`, then the official Windows
+ *    installer); then `provisionKernelSkills` — install `byeppt-pptx-py`
+ *    (and its pyproject dependencies: python-pptx, skia-pathops, uharfbuzz,
+ *    google-genai, ...) into the kernel venv. All spawns run under the
+ *    net-policy env: the configured proxy when there is one, China mirrors
+ *    otherwise.
  *
  * Progress is surfaced through the caller's `onProgress` callback; session.ts
  * forwards it to the renderer as `agent:event` with `byeppt:kernel-*` types.
  */
 import { app } from 'electron'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { PythonSkillRuntimeInfo } from '@warmshao/vsurf'
+import { spawnNetworkEnv } from '../net-policy'
 
 /** Progress callback: a human-readable bootstrap message. */
 export type KernelEnvProgress = (message: string) => void
@@ -73,6 +83,157 @@ function resolveSkillsDir(): string | null {
 function expandHome(p: string): string {
   return p.startsWith('~') ? join(homedir(), p.slice(1)) : p
 }
+
+/**
+ * Temporarily overlay vars onto process.env; returns a restore function.
+ * vsurf spawns uv with `env: process.env`, so this is how the offline
+ * (UV_OFFLINE/UV_FIND_LINKS) and mirror/proxy settings reach the bootstrap.
+ */
+function patchEnv(vars: Record<string, string>): () => void {
+  const saved: Record<string, string | undefined> = {}
+  for (const [k, v] of Object.entries(vars)) {
+    saved[k] = process.env[k]
+    process.env[k] = v
+  }
+  return () => {
+    for (const k of Object.keys(saved)) {
+      if (saved[k] === undefined) delete process.env[k]
+      else process.env[k] = saved[k]
+    }
+  }
+}
+
+// ---- bundled offline runtime -------------------------------------------------
+
+interface KernelRuntimeManifest {
+  uvVersion: string
+  pbsTag: string
+  pbsPython: string
+  platform: string
+  arch: string
+}
+
+/**
+ * Locate the bundled offline kernel runtime (uv + CPython tarball + wheelhouse,
+ * fetched per target at pack time by tools/fetch-kernel-runtime.mjs). Packaged:
+ * resources/kernel-runtime; dev: repo runtime/kernel/<platform>-<arch>.
+ * Returns null when absent (dev checkouts without a fetched runtime → online path).
+ */
+function resolveKernelRuntimeDir(): string | null {
+  const candidates: string[] = []
+  if (process.resourcesPath) candidates.push(join(process.resourcesPath, 'kernel-runtime'))
+  let dir = app.getAppPath()
+  for (let i = 0; i < 8; i++) {
+    candidates.push(join(dir, 'runtime', 'kernel', `${process.platform}-${process.arch}`))
+    const parent = join(dir, '..')
+    if (parent === dir) break
+    dir = parent
+  }
+  for (const c of candidates) {
+    if (
+      existsSync(join(c, 'manifest.json')) &&
+      existsSync(join(c, 'python.tar.gz')) &&
+      existsSync(join(c, 'wheelhouse')) &&
+      existsSync(join(c, UV_EXE))
+    ) {
+      return c
+    }
+  }
+  return null
+}
+
+function readRuntimeManifest(runtimeDir: string): KernelRuntimeManifest {
+  return JSON.parse(readFileSync(join(runtimeDir, 'manifest.json'), 'utf8')) as KernelRuntimeManifest
+}
+
+/** uv's managed-python dir naming: cpython-<ver>-<os>-<arch>-none. */
+function uvPythonDirName(pbsPython: string): string {
+  const os = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux'
+  // uv-platform spells the arm64 arch "aarch64" (e.g. cpython-3.11.16-macos-aarch64-none)
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64'
+  return `cpython-${pbsPython}-${os}-${arch}-none`
+}
+
+/**
+ * Extract the bundled python-build-standalone tarball into uv's managed python
+ * dir, so the bootstrap's `uv python install 3.11` becomes a no-op offline.
+ * Idempotent: an existing dir that `uv python find 3.11` resolves is kept.
+ */
+async function seedBundledPython(runtimeDir: string, manifest: KernelRuntimeManifest): Promise<void> {
+  const uvDir = (await runCapture(UV_PATH, ['python', 'dir'])).trim()
+  const target = join(uvDir, uvPythonDirName(manifest.pbsPython))
+  const found = async () => {
+    try {
+      await runChecked(UV_PATH, ['python', 'find', '3.11'])
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (existsSync(target) && (await found())) return
+  const staging = join(uvDir, 'python')
+  rmSync(staging, { recursive: true, force: true })
+  mkdirSync(uvDir, { recursive: true })
+  // tar is bsdtar on macOS and Windows 10+ — both handle .tar.gz
+  await runChecked('tar', ['-xzf', join(runtimeDir, 'python.tar.gz'), '-C', uvDir])
+  rmSync(target, { recursive: true, force: true })
+  renameSync(staging, target)
+  if (!(await found())) {
+    throw new Error(`bundled python extracted to ${target} but uv python find 3.11 does not see it`)
+  }
+}
+
+/**
+ * Offline first-run assembly from the bundled runtime: pinned uv → seed managed
+ * python → vsurf's normal bootstrap under UV_OFFLINE + UV_FIND_LINKS (venv
+ * creation, dependency + editable skill installs all resolve from the
+ * wheelhouse; vsurf's .bootstrap-version fingerprinting stays authoritative
+ * for later skill updates, which also resolve offline from the new package's
+ * wheelhouse).
+ *
+ * Strictly bundled-only: the user's own uv is always overwritten with the
+ * pinned build, and UV_PYTHON_PREFERENCE=only-managed keeps uv from ever
+ * picking up a system/user Python. There is NO online fallback — a broken
+ * bundle is a packaging bug and must surface as an error, not a silent
+ * 100MB download on a metered/blocked network. Never throws.
+ */
+async function provisionOfflineRuntime(
+  runtimeDir: string,
+  onProgress?: KernelEnvProgress,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const manifest = readRuntimeManifest(runtimeDir)
+    // Managed pythons only (a system/user python must never leak into the
+    // kernel env), fully offline from the wheelhouse. Scoped to this call.
+    const restore = patchEnv({
+      UV_OFFLINE: '1',
+      UV_FIND_LINKS: join(runtimeDir, 'wheelhouse'),
+      UV_PYTHON_PREFERENCE: 'only-managed',
+    })
+    try {
+      // 1. uv binary: always the pinned bundled build (never the user's own)
+      mkdirSync(UV_DIR, { recursive: true })
+      copyFileSync(join(runtimeDir, UV_EXE), UV_PATH)
+      try {
+        chmodSync(UV_PATH, 0o755)
+      } catch {
+        // Windows: chmod is a no-op
+      }
+      process.env.VSURF_INSTALL_UV = '1'
+      // 2. managed python
+      onProgress?.('正在解压内置 Python 运行环境(一次性)…')
+      await seedBundledPython(runtimeDir, manifest)
+      // 3. venv + deps + skills
+      onProgress?.('正在组装 Python 运行环境(离线,首次约 1 分钟)…')
+      return await provisionKernelSkills(onProgress)
+    } finally {
+      restore()
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 
 /** Kernel venv python (mirrors vsurf's getKernelVenvDir/getVenvPythonPath, honoring overrides). */
 export function resolveKernelPython(): string {
@@ -272,8 +433,12 @@ export async function provisionKernelSkills(
 }
 
 /**
- * Full one-time kernel env setup: uv + python skills. Never throws; failures are
- * returned so the caller can surface them without breaking session startup.
+ * Full one-time kernel env setup. Packaged builds use ONLY the bundled
+ * offline runtime (zero network, no fallback — a broken bundle must surface
+ * as an error); dev checkouts without a fetched runtime use the online
+ * bootstrap with the proxy/mirror network policy applied. Never throws;
+ * failures are returned so the caller can surface them without breaking
+ * session startup.
  */
 export async function prepareKernelEnvironment(
   onProgress?: KernelEnvProgress,
@@ -285,6 +450,20 @@ export async function prepareKernelEnvironment(
         if (msg) onProgress(msg)
       }
     : () => {}
+  // A user-supplied kernel python (VSURF_KERNEL_PYTHON) needs no provisioning.
+  if (process.env.VSURF_KERNEL_PYTHON) return { ok: true }
+  const runtimeDir = resolveKernelRuntimeDir()
+  if (runtimeDir) {
+    const r = await provisionOfflineRuntime(runtimeDir, progress)
+    if (!r.ok) {
+      console.error('[kernel-env] bundled runtime provisioning failed:', r.error)
+      progress('内置 Python 环境组装失败,请重新安装应用')
+    }
+    return r
+  }
+  // Dev checkout without a fetched runtime: online bootstrap under the
+  // unified network policy (proxy when configured, China mirrors otherwise).
+  const restore = patchEnv(await spawnNetworkEnv())
   const out: { ok: boolean; error?: string } = { ok: true }
   try {
     await ensureUv(progress)
@@ -296,6 +475,8 @@ export async function prepareKernelEnvironment(
   } catch (err) {
     out.ok = false
     out.error = err instanceof Error ? err.message : String(err)
+  } finally {
+    restore()
   }
   return out
 }

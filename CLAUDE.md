@@ -82,8 +82,32 @@ system mode).
   is in `asarUnpack` because its builtin python skills are pip-installed by
   the kernel at runtime (pip can't read inside asar). The repo `skills/` tree
   ships via `extraResources` → `resources/skills` (top-level `*.py` excluded —
-  `skills/check_links.py` is a maintenance tool); `session.ts
+  `skills/check_links.py` is a maintenance tool; nested sources survive, the
+  kernel pip-installs the python skill editable from that tree); `session.ts
   resolveSkillsDir()` depends on that layout.
+- Offline kernel runtime: packaged builds (shell mac dmg arm64/x64, win nsis
+  setup x64, linux AppImage x64 — one format per platform) ship
+  `resources/kernel-runtime` — pinned uv
+  + CPython 3.11 tarball + a per-platform wheelhouse, fetched at pack time by
+  `tools/fetch-kernel-runtime.mjs` (invoked from the shell electron-builder
+  `beforePack`; output `runtime/kernel/<platform>-<arch>/`, gitignored, bump
+  the pinned versions at the top of the script to upgrade). On first launch
+  `agent/kernel-env.ts` seeds uv's managed-python dir from the tarball and
+  runs vsurf's normal bootstrap under `UV_OFFLINE` + `UV_FIND_LINKS` +
+  `UV_PYTHON_PREFERENCE=only-managed` — zero network, strictly bundled-only
+  (the user's uv/system Python are never used and there is NO online
+  fallback when the bundle exists; a broken bundle must error, not silently
+  download). macOS wheels are resolved for `macosx_12_0` wheels (scipy has no
+  older arm64 wheels), hence `minimumSystemVersion: 12.0`; linux wheels for
+  `manylinux_2_28` (glibc 2.28+ distros). Without the runtime (a dev checkout
+  that never ran the fetch script) the online bootstrap runs under the
+  net-policy env: configured proxy, else Tsinghua/npmmirror mirrors.
+- Network policy is centralized in `apps/byeppt/src/main/net-policy.ts`
+  (imported by both the standalone and shell mains): Settings → 通用 proxy
+  override → env vars → OS system proxy, applied to main-process fetch
+  (undici), Chromium (`session.setProxy` for explicit choices only), and
+  child processes (`spawnNetworkEnv()` — proxy vars, or China mirrors when
+  direct).
 - All image generation runs in the kernel via the byeppt-pptx-py toolchain
   (`image_gen.py`); the main process keeps no generation code — `imagegen/`
   only owns the backend registry (gemini/openai/qwen/zhipu/volcengine,

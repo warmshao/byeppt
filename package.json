@@ -22,7 +22,11 @@
     "dev:standalone": "npm run dev -w @byeppt/app",
     "build": "npm run build -w @byeppt/app",
     "notices": "node tools/gen-third-party-notices.mjs",
-    "dist:win": "npm run notices && npm run build -w @byeppt/app && npm run dist:win -w @byeppt/shell"
+    "dist:win": "npm run notices && npm run build -w @byeppt/app && npm run dist:win -w @byeppt/shell",
+    "dist:mac": "npm run notices && npm run build -w @byeppt/app && npm run dist:mac:arm64 -w @byeppt/shell && npm run dist:mac:x64 -w @byeppt/shell",
+    "dist:mac:arm64": "npm run notices && npm run build -w @byeppt/app && npm run dist:mac:arm64 -w @byeppt/shell",
+    "dist:mac:x64": "npm run notices && npm run build -w @byeppt/app && npm run dist:mac:x64 -w @byeppt/shell",
+    "dist:linux": "npm run notices && npm run build -w @byeppt/app && npm run dist:linux -w @byeppt/shell"
   },
   "overrides": {
     "nanoid@3": "^3.3.17",

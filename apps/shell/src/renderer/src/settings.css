@@ -175,6 +175,62 @@
   text-decoration: underline;
 }
 
+/* General pane: proxy toggle + editable URL row */
+.set-check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.set-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.set-field-col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.set-proxy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.set-proxy-row .set-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-proxy-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: text;
+  word-break: break-all;
+}
+
+.set-proxy-mark {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.set-proxy-mark.ok {
+  color: var(--accent);
+}
+
+.set-proxy-mark.fail {
+  color: var(--danger);
+}
+
 .set-btn-star {
   gap: 6px;
   color: var(--accent);
