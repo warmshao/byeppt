@@ -38,6 +38,7 @@ import {
   type NewTableOptions,
 } from './insert'
 import { BLANK_SLIDE_XML } from './blank'
+import { getSlideNotes, setSlideNotes } from './notes'
 import { escapeXmlAttr } from './xml-utils'
 import { elementSpid } from './animation'
 import { listMasterParts, parseMasterPart } from './master-edit'
@@ -1036,9 +1037,12 @@ export function pasteSlide(
     // registerNewSlide can only insert after a slide, so land at 1 and move up
     const slide = registerNewSlide(opened, 0, newPath)
     if (slide) moveSlide(opened, deck.slides.indexOf(slide), 0)
+    if (slide && bundle.notesText) setSlideNotes(opened, deck.slides.indexOf(slide), bundle.notesText)
     return slide
   }
-  return registerNewSlide(opened, anchorIndex, newPath)
+  const slide = registerNewSlide(opened, anchorIndex, newPath)
+  if (slide && bundle.notesText) setSlideNotes(opened, deck.slides.indexOf(slide), bundle.notesText)
+  return slide
 }
 
 /**
@@ -1123,7 +1127,8 @@ const MIME_BY_EXT: Record<string, string> = {
  * layout/master/theme structure, so the appended slide reuses the target's
  * existing slideLayout (the source's layout/master/theme is not imported); only
  * the slide XML + the media it references are moved (rIds reassigned to avoid
- * cross-slide name clashes), notesSlide dropped.
+ * cross-slide name clashes). Speaker notes carry over as plain text (rewritten
+ * into a fresh notesSlide on the target); other parts (e.g. comments) are dropped.
  */
 export async function mergeSlideFromPptx(
   target: OpenedPptx,
@@ -1138,6 +1143,8 @@ export async function mergeSlideFromPptx(
   let slideXml = src.readText(srcSlidePath)
   if (slideXml == null) return null
   const srcRels = src.readRels(srcSlidePath)
+  // Speaker notes survive the merge as plain text (re-created on the target below)
+  const srcNotes = getSlideNotes(src, srcSlidePath)
 
   // Relative Target of any existing target slide's slideLayout (the appended slide reuses the same layout)
   const anchorSlide = deck.slides[deck.slides.length - 1]
@@ -1182,7 +1189,7 @@ export async function mergeSlideFromPptx(
       // With no target layout (rare: empty deck), move the source's whole layout→master→theme chain over
       if (!layoutTarget) importLayoutChain(src, archive, srcSlidePath)
     }
-    // notesSlide and others (e.g. comments) are dropped
+    // The notesSlide rel is dropped (notes are re-created from srcNotes below); comments and others are dropped
   }
 
   // Write the new slide XML + rels
@@ -1195,7 +1202,9 @@ export async function mergeSlideFromPptx(
   archive.entries.set(relsPathFor(newPath), Buffer.from(relsXml, 'utf8'))
 
   // Register with the package: Content_Types Override + new sldId/rId in presentation.xml(.rels), inserted at the end
-  return registerNewSlide(target, deck.slides.length - 1, newPath)
+  const slide = registerNewSlide(target, deck.slides.length - 1, newPath)
+  if (slide && srcNotes) setSlideNotes(target, deck.slides.indexOf(slide), srcNotes)
+  return slide
 }
 
 /** Starting from an empty deck: move the source single slide's layout→master→theme chain into the target verbatim (rare branch). */

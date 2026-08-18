@@ -9,6 +9,7 @@
 /// paste does.
 
 import { PackageArchive, relsPathFor, resolveTarget, type Relationship } from './zip'
+import { getSlideNotes } from './notes'
 
 const LAYOUT_REL = '/slideLayout'
 const NOTES_REL = '/notesSlide'
@@ -44,6 +45,8 @@ export interface SlideBundle {
   readonly layoutName?: string
   /** source deck's slide size, so the caller can warn about a mismatch */
   readonly slideSize?: { cx: number; cy: number }
+  /** speaker-notes plain text ('' when the source slide has none); applied via setSlideNotes on paste */
+  readonly notesText?: string
   readonly chain?: SlideBundleChain
 }
 
@@ -116,6 +119,9 @@ export function collectSlideBundle(
   let layoutName: string | undefined
 
   for (const rel of archive.readRels(slidePath).values()) {
+    // The notesSlide part itself is not bundled (its rels point back at the
+    // source slide and into the source notesMaster chain); its plain text rides
+    // along as notesText and is rewritten on the target via setSlideNotes.
     if (rel.type.endsWith(NOTES_REL)) continue
     if (rel.targetMode === 'External') {
       rels.push({ id: rel.id, type: rel.type, target: rel.target, external: true })
@@ -137,6 +143,8 @@ export function collectSlideBundle(
   } catch {
     /* malformed source presentation: the size is only used for a warning */
   }
+
+  const notesText = getSlideNotes(archive, slidePath)
 
   let chain: SlideBundleChain | undefined
   const c = archive.resolveSlideChain(slidePath)
@@ -162,6 +170,7 @@ export function collectSlideBundle(
     layoutName,
     ...(slideSize ? { slideSize } : {}),
     ...(chain ? { chain } : {}),
+    ...(notesText ? { notesText } : {}),
   }
 }
 

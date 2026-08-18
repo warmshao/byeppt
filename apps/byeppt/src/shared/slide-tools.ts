@@ -89,6 +89,37 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
     mutating: false,
   },
   {
+    name: 'get_slide_notes',
+    description:
+      "Read a page's speaker notes (the PowerPoint notes-pane text). Returns the full plain text, or a notice when the page has none.",
+    parameters: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+      },
+      required: ['slideIndex'],
+    },
+    mutating: false,
+  },
+  {
+    name: 'set_slide_notes',
+    description:
+      "Replace a page's speaker notes (the PowerPoint notes-pane text). text is the complete new notes content (plain text; \\n separates paragraphs); pass an empty string to clear. " +
+      'The notes pane is not part of the canvas, so set_element_* / execute_slide_script cannot reach it — always use this tool for notes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        slideIndex: { type: 'integer', description: 'Page number (0-based)' },
+        text: {
+          type: 'string',
+          description: 'Complete speaker-notes text (\\n = new paragraph); "" clears the notes',
+        },
+      },
+      required: ['slideIndex', 'text'],
+    },
+    mutating: true,
+  },
+  {
     name: 'set_element_text',
     description:
       "Replace a text element's entire content. paragraphs is the complete post-replacement paragraph array, one object per paragraph; whole-paragraph bold/italic etc. use the boolean fields on the paragraph object.",
@@ -651,7 +682,7 @@ export const SLIDE_TOOL_DEFS: SlideToolDef[] = [
   {
     name: 'import_pptx_slides',
     description:
-      'Merge every slide of a source .pptx file into the current deck (one undo step). Primary use: the SVG escape hatch — after converting an authored SVG to pptx with the byeppt-pptx-py skill, merge the result here. Imported slides inherit the current deck layout/theme chain. When revising EXISTING pages, convert one page at a time and use replace_at — NEVER append a full-deck re-export and delete the surplus pages afterwards.',
+      'Merge every slide of a source .pptx file into the current deck (one undo step). Primary use: the SVG escape hatch — after converting an authored SVG to pptx with the byeppt-pptx-py skill, merge the result here. Imported slides inherit the current deck layout/theme chain; speaker notes carry over. When revising EXISTING pages, convert one page at a time and use replace_at — NEVER append a full-deck re-export and delete the surplus pages afterwards.',
     parameters: {
       type: 'object',
       properties: {

@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import PptxGenJS from 'pptxgenjs'
-import { openPptx, savePptx, mergeSlideFromPptx } from '../src/index'
+import { openPptx, savePptx, mergeSlideFromPptx, getSlideNotes } from '../src/index'
 
 // 1x1 red-dot PNG (base64)
 const RED_DOT =
@@ -76,6 +76,31 @@ describe('mergeSlideFromPptx', () => {
     // The second slide does contain a picture element
     const picCount = reopened.deck.slides[1]!.elements.filter((el) => el.type === 'picture').length
     expect(picCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it('speaker notes of the source slide carry over the merge', async () => {
+    const p = new PptxGenJS()
+    p.defineLayout({ name: 'W', width: 13.333, height: 7.5 })
+    p.layout = 'W'
+    const s = p.addSlide()
+    s.addText('WITH_NOTES', { x: 1, y: 1, w: 8, h: 1, fontSize: 32 })
+    s.addNotes('line one\nline two')
+    const srcBytes = new Uint8Array((await p.write({ outputType: 'nodebuffer' })) as Buffer)
+
+    const base = await openPptx(await onePagePptx('COVER'))
+    await mergeSlideFromPptx(base, srcBytes)
+    expect(base.deck.slides.length).toBe(2)
+
+    // Notes readable immediately, and still there after a save/reopen round-trip
+    // (pptxgenjs writes the break as \r\n inside the run; normalize before comparing)
+    const norm = (s: string) => s.replace(/\r\n/g, '\n')
+    expect(norm(getSlideNotes(base.archive, base.deck.slides[1]!.path))).toBe('line one\nline two')
+    const reopened = await openPptx(await savePptx(base))
+    expect(norm(getSlideNotes(reopened.archive, reopened.deck.slides[1]!.path))).toBe(
+      'line one\nline two',
+    )
+    // The cover slide (no notes) stays note-less
+    expect(getSlideNotes(reopened.archive, reopened.deck.slides[0]!.path)).toBe('')
   })
 
   it('saved output opens with a standard zip and has the right number of slide parts', async () => {

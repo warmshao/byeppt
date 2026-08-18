@@ -476,6 +476,40 @@ async function executeTool(
       }
     }
 
+    case 'get_slide_notes': {
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailNotes'), `slideIndex out of range (0-${slides.length - 1})`)
+      // Notes live in the archive (no RenderSlide involvement), so read straight
+      // through the same IPC the notes pane uses.
+      const text = await window.slidesApi.getNotes(idx)
+      return {
+        output: text.trim()
+          ? `Speaker notes of page ${idx + 1}:\n${text}`
+          : `Page ${idx + 1} has no speaker notes.`,
+        mutated: false,
+        summary: t('aiSumGetNotes', { n: idx + 1 }),
+      }
+    }
+
+    case 'set_slide_notes': {
+      const idx = Number(call.input.slideIndex)
+      if (!slides[idx])
+        return fail(t('aiFailNotes'), `slideIndex out of range (0-${slides.length - 1})`)
+      const text = String(call.input.text ?? '')
+      // setNotes is archive surgery (history + dirty, but no canvas change), so
+      // it returns boolean rather than a RenderSlide — nothing to applySlide.
+      const ok = await window.slidesApi.setNotes({ slideIndex: idx, text })
+      if (!ok) return fail(t('aiFailNotes'), 'Writing the speaker notes failed')
+      return {
+        output: text.trim()
+          ? `Replaced the speaker notes of page ${idx + 1} (${text.length} chars).`
+          : `Cleared the speaker notes of page ${idx + 1}.`,
+        mutated: true,
+        summary: t('aiSumSetNotes', { n: idx + 1 }),
+      }
+    }
+
     case 'view_slide': {
       // slideIndex optional: default to the page the user is currently looking at
       const idx =
