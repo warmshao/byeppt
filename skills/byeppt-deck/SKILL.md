@@ -26,6 +26,14 @@ editing the open deck and for importing finished pages.
 - **Language.** Reply and author slide content in the user's language.
 - **Facts.** No fabricated numbers. Web facts require a real search this run;
   illustrative data must be disclosed.
+- **Browser assistance.** vsurf can drive a shared real browser. When deck work
+  needs real-time news/current sources, online documents (including authenticated
+  pages in the user's browser), or direct browser interaction/verification,
+  proactively explain the need and request browser access via
+  `await browser.reconnect()`; it forces the connection-choice dialog so the user
+  can pick. After they connect, call `await browser.ensure_session()` to create
+  an agent-owned tab. If the user declines, request files, links, or pasted
+  material instead of guessing.
 - **Gates are blocking.** `ask_clarification` gates wait for the answer before
   building. Revisions update `design_spec.md` in place.
 - **Working files.** Route A runs in the deck workdir (kernel cwd):
