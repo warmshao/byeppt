@@ -7,9 +7,9 @@
 #
 # Signing is optional and secret-gated (see apps/shell/electron-builder.cjs):
 #   macOS  — CSC_LINK (base64 .p12) + CSC_KEY_PASSWORD for signing,
-#            APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (App Store
-#            Connect API key, .p8) for notarization. Without them the dmg is
-#            built unsigned.
+#            APPLE_API_KEY_P8 (contents of the App Store Connect API key
+#            .p8 file) + APPLE_API_KEY_ID + APPLE_API_ISSUER for notarization.
+#            Without them the dmg is built unsigned.
 #   Windows — CSC_LINK + CSC_KEY_PASSWORD (or Azure Trusted Signing env) when
 #            a certificate is available; otherwise unsigned.
 name: release
@@ -25,6 +25,9 @@ permissions:
 jobs:
   mac-arm64:
     runs-on: macos-14
+    env:
+      # secrets aren't allowed in step `if:` conditions, so route through env
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,11 +42,17 @@ jobs:
           # the pins live at the top of the fetch script; bumping them
           # invalidates the cache automatically
           key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      # electron-builder's APPLE_API_KEY wants a .p8 file PATH, but secrets
+      # only carry text — materialize it and export the path when configured.
+      - name: Prepare notarization key
+        if: env.APPLE_API_KEY_P8 != ''
+        run: |
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
       - run: npm run dist:mac:arm64
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       - uses: actions/upload-artifact@v4
@@ -54,6 +63,8 @@ jobs:
 
   mac-x64:
     runs-on: macos-13
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,11 +77,15 @@ jobs:
         with:
           path: runtime
           key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
+      - name: Prepare notarization key
+        if: env.APPLE_API_KEY_P8 != ''
+        run: |
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
       - run: npm run dist:mac:x64
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       - uses: actions/upload-artifact@v4
