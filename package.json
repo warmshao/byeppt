@@ -38,6 +38,7 @@
     "pngjs": "^7.0.0",
     "prettier": "^3.9.6",
     "sharp": "^0.35.3",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0"
   }
 }
