@@ -111,21 +111,19 @@ type MainTab =
   | 'review'
   | 'view'
 
-// Mac has no "File" tab (file operations go through the native menu), Windows does
-const TABS: readonly MainTab[] = IS_MAC
-  ? ['home', 'insert', 'draw', 'design', 'transitions', 'animations', 'slideShow', 'review', 'view']
-  : [
-      'file',
-      'home',
-      'insert',
-      'draw',
-      'design',
-      'transitions',
-      'animations',
-      'slideShow',
-      'review',
-      'view',
-    ]
+// All platforms get the in-ribbon "File" tab; the native menu stays as-is on macOS
+const TABS: readonly MainTab[] = [
+  'file',
+  'home',
+  'insert',
+  'draw',
+  'design',
+  'transitions',
+  'animations',
+  'slideShow',
+  'review',
+  'view',
+]
 
 const TAB_LABEL: Record<MainTab | ContextTab, StringKey> = {
   file: 'ribbonTabFile',
@@ -1357,8 +1355,7 @@ export function Ribbon({
           anyPanelOpen ? ' ribbon-tabs-nodrag' : ''
         }`}
       >
-        {!IS_MAC && (
-          <div className="file-tab-wrap">
+        <div className="file-tab-wrap">
             <button
               className={`ribbon-tab ribbon-tab-file ${fileOpen ? 'open' : ''}`}
               onMouseDown={(e) => {
@@ -1436,7 +1433,6 @@ export function Ribbon({
               </div>
             )}
           </div>
-        )}
         <button
           className="qa-btn"
           data-tip={t('ribbonSaveTip')}
