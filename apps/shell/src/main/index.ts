@@ -48,6 +48,7 @@ import {
   slidesFileRenamed,
 } from '../../../byeppt/src/main/slides-main'
 import { registerAgentIpc } from '../../../byeppt/src/main/agent/session'
+import { ensureVsurfPackageDirEnv } from '../../../byeppt/src/main/agent/kernel-env'
 import {
   applyProxyToMainProcess as installMainProcessProxy,
   resolveEffectiveProxy,
@@ -823,6 +824,9 @@ app.on('second-instance', (_event, argv, _cwd, additionalData) => {
 
 installNavigationGuard(app)
 installContextMenu(app, () => contextMenuLabels(currentLang()))
+// Must run before anything uses the vsurf SDK: packaged builds need the SDK
+// rooted at its asar-unpacked copy so paths handed to uv/pip are real.
+ensureVsurfPackageDirEnv()
 // home first: registerSlidesIpc removeHandler()s the shared 'app:get-theme' /
 // 'app:get-language' channels before re-registering its equivalents, so it
 // must run after the shell's own registrations (a duplicate plain handle()

@@ -239,6 +239,7 @@ import { tm } from './i18n-main'
 import { readAppSettings, updateAppSettings } from './app-settings'
 import { applyProxyToMainProcess } from './net-policy'
 import { registerAgentIpc, resolveUnsavedChatId } from './agent/session'
+import { ensureVsurfPackageDirEnv } from './agent/kernel-env'
 import { registerImageGenIpc } from './imagegen/ipc'
 import { tiffToPng } from './tiff-decode'
 import {
@@ -4037,6 +4038,9 @@ export function installSlidesMenu(): void {
 }
 
 export function startSlidesStandalone(): void {
+  // Must run before anything imports the vsurf SDK: packaged builds need the
+  // SDK rooted at its asar-unpacked copy so paths handed to uv/pip are real.
+  ensureVsurfPackageDirEnv()
   installNavigationGuard(app)
   installContextMenu(app, () => contextMenuLabels(getUiLang()))
   // Optional debug switch: enable CDP only in dev with SLIDES_CDP_PORT explicitly set (for

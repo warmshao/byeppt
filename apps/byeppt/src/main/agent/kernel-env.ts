@@ -27,7 +27,7 @@ import { app } from 'electron'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, delimiter } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { PythonSkillRuntimeInfo } from '@warmshao/vsurf'
 import { spawnNetworkEnv } from '../net-policy'
@@ -61,6 +61,31 @@ const UV_PATH = join(UV_DIR, UV_EXE)
 /** <userData>/agent — kernel cwd + config dir. */
 function agentDir(): string {
   return join(app.getPath('userData'), 'agent')
+}
+
+/**
+ * Point the vsurf SDK at its asar-unpacked copy when packaged. The SDK
+ * resolves everything (dist/vsurf-runtime, builtin python skills) from its
+ * own package dir and hands those paths to external processes (uv/pip) —
+ * which cannot read inside app.asar ("Not a directory", os error 20).
+ * asarUnpack already ships the files at app.asar.unpacked; VSURF_PACKAGE_DIR
+ * is the SDK's official override for exactly this. Idempotent.
+ */
+export function ensureVsurfPackageDirEnv(): void {
+  if (process.env.VSURF_PACKAGE_DIR) return
+  if (!app.isPackaged || !process.resourcesPath) return
+  const dir = join(
+    process.resourcesPath,
+    'app.asar.unpacked',
+    'node_modules',
+    '@warmshao',
+    'vsurf',
+  )
+  if (existsSync(join(dir, 'package.json'))) {
+    process.env.VSURF_PACKAGE_DIR = dir
+  } else {
+    console.warn('[kernel-env] asar-unpacked vsurf SDK not found at', dir)
+  }
 }
 
 /** Locate the bundled skills dir (repo ./skills in dev, resources/skills when packaged). */
@@ -185,6 +210,22 @@ async function seedBundledPython(runtimeDir: string, manifest: KernelRuntimeMani
 }
 
 /**
+ * PATH for the offline bootstrap with every directory containing a `uv`
+ * binary removed — except UV_DIR (which we just populated with the pinned
+ * bundled build, prepended). vsurf's ensureUv checks PATH before
+ * ~/.local/bin/uv, so without this a user who happens to have uv installed
+ * (e.g. Homebrew) would silently bootstrap with their own uv build, breaking
+ * the strictly-bundled-only guarantee.
+ */
+function bundledOnlyPath(): string {
+  const exe = process.platform === 'win32' ? 'uv.exe' : 'uv'
+  const dirs = (process.env.PATH || '')
+    .split(delimiter)
+    .filter((dir) => dir && dir !== UV_DIR && !existsSync(join(dir, exe)))
+  return [UV_DIR, ...dirs].join(delimiter)
+}
+
+/**
  * Offline first-run assembly from the bundled runtime: pinned uv → seed managed
  * python → vsurf's normal bootstrap under UV_OFFLINE + UV_FIND_LINKS (venv
  * creation, dependency + editable skill installs all resolve from the
@@ -210,6 +251,7 @@ async function provisionOfflineRuntime(
       UV_OFFLINE: '1',
       UV_FIND_LINKS: join(runtimeDir, 'wheelhouse'),
       UV_PYTHON_PREFERENCE: 'only-managed',
+      PATH: bundledOnlyPath(),
     })
     try {
       // 1. uv binary: always the pinned bundled build (never the user's own)
@@ -378,10 +420,15 @@ async function detectPythonSkills(): Promise<PythonSkillRuntimeInfo[]> {
   return sdk.getPythonSkillRuntimeInfo(skills)
 }
 
-/** Fingerprint of every bundled Python skill's pyproject.toml (name + full bytes). */
+/** Fingerprint of every bundled Python skill's pyproject.toml (name + full
+ * bytes), plus the skills dir itself: skills are pip-installed editable, so
+ * the venv bakes in absolute source paths — the same content at a different
+ * location (dev repo vs packaged resources/skills) needs a venv rebuild. */
 function pythonSkillsFingerprint(skillsDir: string | null): string {
   if (!skillsDir) return ''
   const hash = createHash('sha256')
+  hash.update(skillsDir)
+  hash.update('\0')
   for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const pyproject = join(skillsDir, entry.name, 'pyproject.toml')
@@ -468,6 +515,7 @@ export async function prepareKernelEnvironment(
     : () => {}
   // A user-supplied kernel python (VSURF_KERNEL_PYTHON) needs no provisioning.
   if (process.env.VSURF_KERNEL_PYTHON) return { ok: true }
+  ensureVsurfPackageDirEnv()
   const runtimeDir = resolveKernelRuntimeDir()
   if (runtimeDir) {
     const r = await provisionOfflineRuntime(runtimeDir, progress)
