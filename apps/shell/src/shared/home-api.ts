@@ -108,6 +108,41 @@ export interface HomeApi {
   setProxy(pref: ProxyPreference): Promise<void>
   /** connectivity probe through a candidate proxy URL (null/'' = direct) */
   testProxy(url: string): Promise<{ ok: boolean; error?: string }>
+  /** manual update check; status changes are also pushed via onUpdateEvent */
+  checkForUpdate(): Promise<UpdateStatus>
+  /** start downloading the update found by checkForUpdate (win/linux only) */
+  downloadUpdate(): Promise<UpdateStatus>
+  /** restart into the downloaded installer (win/linux only) */
+  quitAndInstall(): Promise<void>
+  /** updater status pushes from the main process (download progress etc.) */
+  onUpdateEvent(handler: (status: UpdateStatus) => void): () => void
+}
+
+/** manual "检查更新" flow state (Settings → 通用). */
+export interface UpdateStatus {
+  /** 'idle' before any check; 'dev' for unpackaged dev builds */
+  state:
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+    | 'dev'
+  platform: 'darwin' | 'win32' | 'linux'
+  /** false on macOS (unsigned build → manual install via the release page) and in dev */
+  canAutoUpdate: boolean
+  /** app.getVersion() */
+  current: string
+  /** latest version when state is up-to-date/available/downloading/downloaded */
+  version?: string
+  /** 0-100 while downloading */
+  percent?: number
+  /** GitHub release page URL (macOS 前往下载; manual fallback on error) */
+  releaseUrl?: string
+  /** error detail when state === 'error' */
+  message?: string
 }
 
 /** User's proxy preference: enabled=false → direct; url empty → auto (env/system). */
@@ -192,6 +227,10 @@ export const HOME_CHANNELS = {
   testProxy: 'home:test-proxy',
   getDefaultSaveDir: 'home:get-default-save-dir',
   pickDefaultSaveDir: 'home:pick-default-save-dir',
+  checkUpdate: 'home:check-update',
+  downloadUpdate: 'home:download-update',
+  quitAndInstall: 'home:quit-and-install',
+  updateEvent: 'home:update-event',
 } as const
 
 export const PROJECT_CHANNELS = {

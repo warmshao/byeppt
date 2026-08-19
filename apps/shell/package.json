@@ -42,6 +42,7 @@
   "author": "byeppt",
   "dependencies": {
     "@warmshao/vsurf": "^0.7.4",
+    "electron-updater": "^6.8.9",
     "vsurf-ai": "^0.7.4"
   }
 }

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useI18n } from './locale'
 import type { StringKey } from './locale'
 import { ImageGenPane, ProvidersPane } from './AgentSettings'
-import type { UiTheme } from '../../shared/home-api'
+import type { UiTheme, UpdateStatus } from '../../shared/home-api'
 import './settings.css'
 
 // ── Settings modal (opened from the sidebar gear) ─────────
@@ -239,6 +239,101 @@ function ProxyField() {
   )
 }
 
+/**
+ * 通用 → 检查更新: manual check against GitHub Releases. win/linux auto-update
+ * through electron-updater (check → auto-download with % → restart to install);
+ * the unsigned macOS build can only check — the UI then offers 前往下载
+ * (release page in the browser). Status changes also arrive via push events.
+ */
+function UpdateField({ appVersion }: { appVersion: string }) {
+  const { t } = useI18n()
+  const [status, setStatus] = useState<UpdateStatus | null>(null)
+
+  useEffect(() => {
+    const off = window.aiOffice.onUpdateEvent?.((s) => setStatus(s))
+    return () => off?.()
+  }, [])
+
+  const check = () => {
+    void window.aiOffice
+      .checkForUpdate()
+      .then((s) => {
+        setStatus(s)
+        // auto-download right after a successful check on auto-updating platforms
+        if (s.state === 'available' && s.canAutoUpdate) download()
+      })
+      .catch(() => undefined)
+  }
+
+  const download = () => {
+    void window.aiOffice
+      .downloadUpdate()
+      .then(setStatus)
+      .catch(() => undefined)
+  }
+
+  const state = status?.state ?? 'idle'
+  const busy = state === 'checking' || state === 'downloading'
+
+  const hint = (() => {
+    switch (state) {
+      case 'checking':
+        return { text: t('setUpdateChecking') }
+      case 'up-to-date':
+        return { text: t('setUpdateUpToDate'), mark: 'ok' as const }
+      case 'available':
+        return { text: t('setUpdateAvailable', { v: status?.version ?? '' }) }
+      case 'downloading':
+        return { text: t('setUpdateDownloading', { p: String(status?.percent ?? 0) }) }
+      case 'downloaded':
+        return { text: t('setUpdateDownloaded'), mark: 'ok' as const }
+      case 'error':
+        return { text: t('setUpdateError'), mark: 'fail' as const, tip: status?.message }
+      case 'dev':
+        return { text: t('setUpdateDev') }
+      default:
+        return null
+    }
+  })()
+
+  return (
+    <>
+      <div className="set-field">
+        <div className="set-field-text">
+          <div className="set-field-label">{t('setUpdate')}</div>
+          <div className="set-field-value">{appVersion || '—'}</div>
+        </div>
+        {state === 'downloaded' ? (
+          <button className="set-btn" onClick={() => void window.aiOffice.quitAndInstall()}>
+            {t('setUpdateRestart')}
+          </button>
+        ) : state === 'available' && status && !status.canAutoUpdate ? (
+          <button
+            className="set-btn"
+            onClick={() =>
+              status.releaseUrl && void window.aiOffice.openExternal(status.releaseUrl)
+            }
+          >
+            {t('setUpdateGoDownload')}
+          </button>
+        ) : (
+          <button className="set-btn" onClick={check} disabled={busy}>
+            {busy ? '…' : state === 'error' ? t('setUpdateRetry') : t('setUpdate')}
+          </button>
+        )}
+      </div>
+      {hint && (
+        <div className="set-proxy-hint">
+          {hint.mark && <span className={`set-proxy-mark ${hint.mark}`} data-tip={hint.tip}>
+            {hint.mark === 'ok' ? '✓' : '✗'}
+          </span>}
+          {hint.text}
+        </div>
+      )}
+    </>
+  )
+}
+
 export interface SettingsModalProps {
   onClose: () => void
   /** deep-linked section (e.g. the AI panel's "model settings" link → 'providers') */
@@ -377,6 +472,7 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
                   </span>
                 </div>
                 <ProxyField />
+                <UpdateField appVersion={appVersion} />
                 <Field
                   label={t('saveLocation')}
                   value={saveDir || '—'}

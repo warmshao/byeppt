@@ -59,6 +59,7 @@ import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
+import { registerUpdaterIpc } from './updater'
 import { tMain } from './menu-strings'
 import {
   normalizeRecentQuery,
@@ -834,6 +835,7 @@ ensureVsurfPackageDirEnv()
 // must run after the shell's own registrations (a duplicate plain handle()
 // would throw).
 registerHomeIpc()
+registerUpdaterIpc(() => shellWindow)
 registerTabsIpc()
 registerSlidesIpc()
 registerAgentIpc(getProjectStore)

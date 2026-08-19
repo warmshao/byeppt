@@ -115,7 +115,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: byeppt-win-x64
-          path: apps/shell/release/*.exe
+          # latest.yml + blockmap feed electron-updater (Settings → 检查更新)
+          path: |
+            apps/shell/release/*.exe
+            apps/shell/release/*.yml
+            apps/shell/release/*.blockmap
           if-no-files-found: error
 
   linux-x64:
@@ -136,7 +140,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: byeppt-linux-x64
-          path: apps/shell/release/*.AppImage
+          # latest-linux.yml + blockmap feed electron-updater
+          path: |
+            apps/shell/release/*.AppImage
+            apps/shell/release/*.yml
+            apps/shell/release/*.blockmap
           if-no-files-found: error
 
   # Tag pushes only: gather all four build artifacts into one GitHub Release.

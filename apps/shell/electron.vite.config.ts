@@ -13,7 +13,9 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['@warmshao/vsurf'],
+        // electron-updater also stays external: it does lazy internal
+        // require()s (platform providers) that break when bundled.
+        external: ['@warmshao/vsurf', 'electron-updater'],
       },
     },
   },

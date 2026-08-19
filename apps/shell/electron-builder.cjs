@@ -85,6 +85,13 @@ function ensureKernelRuntime(context) {
 const config = {
   appId: 'com.byeppt.app',
   productName: 'ByePPT',
+  // Update feed for electron-updater (Settings → 通用 → 检查更新): embeds
+  // app-update.yml into the package and makes the nsis/AppImage builds emit
+  // latest.yml / latest-linux.yml + blockmaps, which the release workflow
+  // uploads alongside the installers. No --publish flag is passed, so nothing
+  // is uploaded by electron-builder itself. (macOS builds are unsigned and
+  // use a manual GitHub-API check instead — Squirrel.Mac requires signing.)
+  publish: [{ provider: 'github', owner: 'warmshao', repo: 'byeppt' }],
   // Resolved from the installed electron package so dependency bumps can
   // never leave a stale hard-coded pin behind (packaging would silently ship
   // the old runtime).

@@ -12,6 +12,7 @@ import type {
   UiLanguage,
   AgentSettingsApi,
   AgentOAuthEvent,
+  UpdateStatus,
 } from '../shared/home-api'
 import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
@@ -163,6 +164,57 @@ const homeApi: HomeApi = {
     ipcRenderer.on('home:open-agent-settings', listener)
     return () => ipcRenderer.removeListener('home:open-agent-settings', listener)
   },
+  async checkForUpdate() {
+    return asUpdateStatus(await ipcRenderer.invoke(HOME_CHANNELS.checkUpdate))
+  },
+  async downloadUpdate() {
+    return asUpdateStatus(await ipcRenderer.invoke(HOME_CHANNELS.downloadUpdate))
+  },
+  async quitAndInstall() {
+    await ipcRenderer.invoke(HOME_CHANNELS.quitAndInstall)
+  },
+  onUpdateEvent(handler) {
+    const listener = (_event: IpcRendererEvent, payload: unknown) =>
+      handler(asUpdateStatus(payload))
+    ipcRenderer.on(HOME_CHANNELS.updateEvent, listener)
+    return () => ipcRenderer.removeListener(HOME_CHANNELS.updateEvent, listener)
+  },
+}
+
+const UPDATE_STATES: readonly UpdateStatus['state'][] = [
+  'idle',
+  'checking',
+  'up-to-date',
+  'available',
+  'downloading',
+  'downloaded',
+  'error',
+  'dev',
+]
+
+function asUpdateStatus(result: unknown): UpdateStatus {
+  const r = (result ?? {}) as Partial<UpdateStatus>
+  const platform =
+    r.platform === 'darwin' || r.platform === 'win32' || r.platform === 'linux'
+      ? r.platform
+      : 'linux'
+  return {
+    state: UPDATE_STATES.includes(r.state as UpdateStatus['state'])
+      ? (r.state as UpdateStatus['state'])
+      : 'error',
+    platform,
+    canAutoUpdate: r.canAutoUpdate === true,
+    current: typeof r.current === 'string' ? r.current : '',
+    version: typeof r.version === 'string' ? r.version : undefined,
+    percent: typeof r.percent === 'number' ? r.percent : undefined,
+    releaseUrl: typeof r.releaseUrl === 'string' ? r.releaseUrl : undefined,
+    message:
+      typeof r.message === 'string'
+        ? r.message
+        : r.state === 'error'
+          ? 'unknown updater error'
+          : undefined,
+  }
 }
 
 contextBridge.exposeInMainWorld('aiOffice', homeApi)
