@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useI18n } from './locale'
 import type { StringKey } from './locale'
 import { ImageGenPane, ProvidersPane } from './AgentSettings'
-import type { UiTheme, UpdateStatus } from '../../shared/home-api'
+import type { LanguagePreference, UiTheme, UpdateStatus } from '../../shared/home-api'
 import './settings.css'
 
 // ── Settings modal (opened from the sidebar gear) ─────────
@@ -341,9 +341,10 @@ export interface SettingsModalProps {
 }
 
 export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
-  const { lang, setLang, t } = useI18n()
+  const { setLang, applyLang, t } = useI18n()
   const [section, setSection] = useState<SectionId>(initialSection ?? 'general')
   const [theme, setTheme] = useState<UiTheme>('system')
+  const [langPref, setLangPref] = useState<LanguagePreference>('system')
   const [saveDir, setSaveDir] = useState('')
   const [appVersion, setAppVersion] = useState('')
 
@@ -351,6 +352,9 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
     let alive = true
     void window.aiOffice.getTheme?.().then((th) => {
       if (alive) setTheme(th)
+    })
+    void window.aiOffice.getLanguagePreference?.().then((pref) => {
+      if (alive) setLangPref(pref)
     })
     void window.aiOffice.getDefaultSaveDir?.().then((dir) => {
       if (alive && dir) setSaveDir(dir)
@@ -376,6 +380,19 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
     void window.aiOffice.setTheme(next)
     if (next === 'system') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.setAttribute('data-theme', next)
+  }
+
+  const applyLangPref = (next: LanguagePreference) => {
+    setLangPref(next)
+    if (next === 'system') {
+      // persist the preference, then re-apply whatever the OS locale resolves to
+      void window.aiOffice
+        .setLanguage('system')
+        .then(() => window.aiOffice.getLanguage())
+        .then((resolved) => applyLang(resolved))
+    } else {
+      setLang(next)
+    }
   }
 
   const changeSaveDir = () => {
@@ -431,14 +448,17 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
                   </div>
                   <span className="set-select-wrap">
                     <span className="set-select-text" aria-hidden="true">
-                      {LANG_OPTIONS.find((o) => o.value === lang)?.label ?? lang}
+                      {langPref === 'system'
+                        ? t('langSystem')
+                        : (LANG_OPTIONS.find((o) => o.value === langPref)?.label ?? langPref)}
                     </span>
                     <select
                       id="set-lang"
                       className="set-select"
-                      value={lang}
-                      onChange={(e) => setLang(e.target.value as typeof lang)}
+                      value={langPref}
+                      onChange={(e) => applyLangPref(e.target.value as LanguagePreference)}
                     >
+                      <option value="system">{t('langSystem')}</option>
                       {LANG_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}

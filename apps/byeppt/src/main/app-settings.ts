@@ -32,6 +32,11 @@ export interface ImageGenProviderConfig {
 
 export interface AppSettings {
   theme?: UiThemePref
+  /**
+   * UI language preference: a concrete language, or 'system' to follow the OS
+   * display language (the default when absent).
+   */
+  language?: string
   /** Last explicitly selected agent model */
   agentModel?: { provider: string; id: string }
   /** per-provider model/baseUrl/test state, keyed by provider id */

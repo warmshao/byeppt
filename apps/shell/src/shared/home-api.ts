@@ -20,6 +20,13 @@ export type UiLanguage =
   | 'hi'
   | 'zh-TW'
 
+/**
+ * UI language preference: a concrete language, or 'system' to follow the OS
+ * display language / region (re-resolved at every launch). Persisted in
+ * userData/app-settings.json; the default when nothing is saved is 'system'.
+ */
+export type LanguagePreference = UiLanguage | 'system'
+
 /** UI theme preference */
 export type UiTheme = 'light' | 'dark' | 'system'
 
@@ -84,10 +91,12 @@ export interface HomeApi {
   deleteFiles(paths: string[]): Promise<void>
   /** open the OS trash, where deleted files can be restored */
   openTrash(): Promise<void>
-  /** current UI language (persisted in userData/app-settings.json) */
+  /** current UI language (resolved; persisted in userData/app-settings.json) */
   getLanguage(): Promise<UiLanguage>
-  /** switch + persist the UI language; main rebuilds its menus to match */
-  setLanguage(lang: UiLanguage): Promise<void>
+  /** the saved preference: a concrete language or 'system' (follow OS locale) */
+  getLanguagePreference(): Promise<LanguagePreference>
+  /** switch + persist the UI language ('system' follows the OS); main rebuilds its menus to match */
+  setLanguage(lang: LanguagePreference): Promise<void>
   /** app version (from package.json / electron app.getVersion) */
   getAppVersion(): Promise<string>
   /** current UI theme preference (persisted in userData/app-settings.json) */
@@ -218,6 +227,7 @@ export const HOME_CHANNELS = {
   deleteFiles: 'home:delete-files',
   openTrash: 'home:open-trash',
   getLanguage: 'home:get-language',
+  getLanguagePreference: 'home:get-language-preference',
   setLanguage: 'home:set-language',
   getAppVersion: 'home:get-app-version',
   getTheme: 'home:get-theme',

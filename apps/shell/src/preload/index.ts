@@ -108,8 +108,12 @@ const homeApi: HomeApi = {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getLanguage)
     return isUiLanguage(result) ? result : 'zh'
   },
+  async getLanguagePreference() {
+    const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getLanguagePreference)
+    return result === 'system' || isUiLanguage(result) ? result : 'system'
+  },
   async setLanguage(lang) {
-    if (!isUiLanguage(lang)) throw new Error('Invalid language.')
+    if (lang !== 'system' && !isUiLanguage(lang)) throw new Error('Invalid language.')
     await ipcRenderer.invoke(HOME_CHANNELS.setLanguage, lang)
   },
   async getAppVersion() {

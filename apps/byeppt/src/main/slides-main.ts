@@ -37,7 +37,7 @@ import {
   showSaveDialogWithMemory,
   toggleDevToolsItem,
 } from '@byeppt/electron-utils'
-import { getUiLang, normalizeLang, setUiLang } from '@byeppt/i18n'
+import { getUiLang, isLang, normalizeLang, setUiLang } from '@byeppt/i18n'
 import { ProjectStore } from '@byeppt/project-store'
 import {
   addChart,
@@ -4082,7 +4082,16 @@ export function startSlidesStandalone(): void {
   if (argPath && existsSync(argPath)) pendingOpenPath = argPath
 
   app.whenReady().then(async () => {
-    setUiLang(normalizeLang(process.env.BYEPPT_LANG ?? app.getLocale()))
+    // UI language: saved preference wins; 'system'/absent follows the OS
+    // display language (first preferred language), BYEPPT_LANG overrides for tests.
+    const savedLang = readAppSettings().language
+    setUiLang(
+      process.env.BYEPPT_LANG
+        ? normalizeLang(process.env.BYEPPT_LANG)
+        : isLang(savedLang)
+          ? savedLang
+          : normalizeLang(app.getPreferredSystemLanguages()[0] ?? app.getLocale()),
+    )
     registerSlidesIpc()
     registerAgentIpc(getSlidesProjectStore)
     registerProjectIpc()

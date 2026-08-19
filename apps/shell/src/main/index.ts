@@ -108,11 +108,26 @@ configureSlidesRuntime({
 
 // ---- UI language ----
 // Persisted in userData/app-settings.json so the editor module reads the same
-// file. BYEPPT_LANG overrides for tests.
+// file. The saved value is a *preference*: a concrete language, or 'system'
+// (the default) to follow the OS display language, re-resolved at launch.
+// BYEPPT_LANG overrides for tests.
 
 const APP_SETTINGS_PATH = () => join(app.getPath('userData'), 'app-settings.json')
 
+let uiLangPref: Lang | 'system' | null = null
 let uiLang: Lang | null = null
+
+/** resolve the OS display language to a supported Lang (first preferred language wins) */
+function resolveSystemLang(): Lang {
+  return normalizeLang(app.getPreferredSystemLanguages()[0] ?? app.getLocale())
+}
+
+function currentLangPref(): Lang | 'system' {
+  if (uiLangPref) return uiLangPref
+  const saved = readAppSettings(APP_SETTINGS_PATH()).language
+  uiLangPref = saved === 'system' || isLang(saved) ? saved : 'system'
+  return uiLangPref
+}
 
 function currentLang(): Lang {
   if (uiLang) return uiLang
@@ -121,17 +136,18 @@ function currentLang(): Lang {
     setUiLang(uiLang)
     return uiLang
   }
-  const saved = readAppSettings(APP_SETTINGS_PATH()).language
-  if (isLang(saved)) uiLang = saved
-  uiLang ??= normalizeLang(app.getLocale())
+  const pref = currentLangPref()
+  uiLang = pref === 'system' ? resolveSystemLang() : pref
   setUiLang(uiLang)
   return uiLang
 }
 
-function persistLang(lang: Lang): void {
-  uiLang = lang
-  setUiLang(lang)
-  writeAppSetting(APP_SETTINGS_PATH(), 'language', lang)
+function persistLang(pref: Lang | 'system'): Lang {
+  uiLangPref = pref
+  uiLang = pref === 'system' ? resolveSystemLang() : pref
+  setUiLang(uiLang)
+  writeAppSetting(APP_SETTINGS_PATH(), 'language', pref)
+  return uiLang
 }
 
 let cachedTheme: UiTheme | null = null
@@ -503,14 +519,18 @@ function registerHomeIpc(): void {
 
   ipcMain.handle(HOME_CHANNELS.getLanguage, (): Lang => currentLang())
 
+  ipcMain.handle(HOME_CHANNELS.getLanguagePreference, (): Lang | 'system' => currentLangPref())
+
   ipcMain.handle(HOME_CHANNELS.setLanguage, (_event, lang: unknown) => {
-    if (!isLang(lang) || lang === currentLang()) return
-    persistLang(lang)
+    if (lang !== 'system' && !isLang(lang)) return
+    if (lang === currentLangPref()) return
+    const resolved = persistLang(lang)
     // the switcher lives on the home page, so the home menu is the active one
     buildHomeMenu()
     installDockMenu()
     installBackToHomeItems()
-    for (const wc of webContents.getAllWebContents()) wc.send('app:language-changed', lang)
+    // renderers only ever see the resolved language, never the 'system' preference
+    for (const wc of webContents.getAllWebContents()) wc.send('app:language-changed', resolved)
   })
 
   ipcMain.handle(HOME_CHANNELS.getTheme, (): UiTheme => currentTheme())

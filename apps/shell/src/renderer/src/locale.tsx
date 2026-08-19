@@ -10,30 +10,42 @@ export type TFunc = (key: StringKey, params?: Params) => string
 
 interface LocaleValue {
   lang: Lang
+  /** switch + persist the language */
   setLang: (lang: Lang) => void
+  /** apply a language locally without persisting (used after persisting the
+   *  'system' preference, to re-apply the OS-resolved language) */
+  applyLang: (lang: Lang) => void
 }
 
-const LocaleContext = createContext<LocaleValue>({ lang: 'zh', setLang: () => {} })
+const LocaleContext = createContext<LocaleValue>({
+  lang: 'zh',
+  setLang: () => {},
+  applyLang: () => {},
+})
 
 export function LocaleProvider({ initial, children }: { initial: Lang; children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(initial)
-  const value = useMemo<LocaleValue>(
-    () => ({
+  const value = useMemo<LocaleValue>(() => {
+    const applyLang = (next: Lang) => {
+      setLangState(next)
+      document.documentElement.lang = htmlLang(next)
+    }
+    return {
       lang,
+      applyLang,
       setLang: (next) => {
-        setLangState(next)
-        document.documentElement.lang = htmlLang(next)
+        applyLang(next)
         void window.aiOffice.setLanguage(next)
       },
-    }),
-    [lang],
-  )
+    }
+  }, [lang])
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>
 }
 
 export interface I18n {
   lang: Lang
   setLang: (lang: Lang) => void
+  applyLang: (lang: Lang) => void
   t: TFunc
   /** BCP-47 locale for date/number formatting */
   dateLocale: string
@@ -63,10 +75,11 @@ const DATE_LOCALES: Record<Lang, string> = {
 }
 
 export function useI18n(): I18n {
-  const { lang, setLang } = useContext(LocaleContext)
+  const { lang, setLang, applyLang } = useContext(LocaleContext)
   return {
     lang,
     setLang,
+    applyLang,
     t: (key, params) => translate(lang, key, params),
     dateLocale: DATE_LOCALES[lang],
   }
