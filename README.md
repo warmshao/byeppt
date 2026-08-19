@@ -6,8 +6,7 @@
 
 **跟手搓 PPT 说拜拜** &middot; [English](./README_EN.md)
 
-<!-- Demo video placeholder -->
-<!-- <video src="docs/demo.mp4" controls muted></video> -->
+<video src="https://github.com/user-attachments/assets/a79fff70-f764-44ad-9100-823ad2dadf79" controls muted playsinline></video>
 
 这个 demo 使用 DeepSeek V4 Flash 制作，共十二页，耗时 15 分钟，花费 **1 元**，缓存命中率 98%。
 

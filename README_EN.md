@@ -6,8 +6,7 @@
 
 **Say goodbye to handcrafted slides** &middot; [中文](./README.md)
 
-<!-- Demo video placeholder -->
-<!-- <video src="docs/demo.mp4" controls muted></video> -->
+<video src="https://github.com/user-attachments/assets/a79fff70-f764-44ad-9100-823ad2dadf79" controls muted playsinline></video>
 
 This demo was generated with DeepSeek V4 Flash: 12 slides in 15 minutes, costing just **$0.14**, with a 98% cache hit rate.
 
