@@ -24,19 +24,19 @@ permissions:
 
 jobs:
   mac-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       # secrets aren't allowed in step `if:` conditions, so route through env
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Cache kernel runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: runtime
           # the pins live at the top of the fetch script; bumping them
@@ -55,25 +55,25 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: byeppt-mac-arm64
           path: apps/shell/release/*.dmg
           if-no-files-found: error
 
   mac-x64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     env:
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Cache kernel runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: runtime
           key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
@@ -88,7 +88,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: byeppt-mac-x64
           path: apps/shell/release/*.dmg
@@ -97,14 +97,14 @@ jobs:
   win-x64:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Cache kernel runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: runtime
           key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
@@ -112,7 +112,7 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: byeppt-win-x64
           path: apps/shell/release/*.exe
@@ -121,19 +121,19 @@ jobs:
   linux-x64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Cache kernel runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: runtime
           key: kernel-runtime-${{ runner.os }}-${{ hashFiles('tools/fetch-kernel-runtime.mjs') }}
       - run: npm run dist:linux
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: byeppt-linux-x64
           path: apps/shell/release/*.AppImage
@@ -150,12 +150,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: byeppt-*
           path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
