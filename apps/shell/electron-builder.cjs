@@ -158,7 +158,6 @@ const config = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     artifactName: `ByePPT-\${version}-setup.\${ext}`,
-    include: 'build/installer.nsh',
   },
   linux: {
     // the bundled kernel wheelhouse is resolved for <=manylinux_2_28 wheels,
