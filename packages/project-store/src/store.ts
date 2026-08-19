@@ -56,6 +56,39 @@ function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 }
 
+/**
+ * Identity key for a file path. Paths reach us from many sources (save dialog,
+ * recent-files list, shell open, CLI) whose strings can differ only in letter
+ * case or separator style, yet name the same file on win32/macOS. Every
+ * fileMap/chatIdByPath lookup folds through this — otherwise a case-variant
+ * open mints a fresh chatId and the deck's history "disappears" (the data is
+ * still on disk under the original id). Linux keeps exact matching: its
+ * filesystems are case-sensitive. The stored keys stay in their original form
+ * (they're user-facing); only comparisons fold.
+ */
+export function filePathKey(filePath: string): string {
+  if (process.platform === 'win32')
+    return filePath.replace(/\//g, '\\').normalize('NFC').toLowerCase()
+  if (process.platform === 'darwin') return filePath.normalize('NFC').toLowerCase()
+  return filePath
+}
+
+/** Platform-aware path equality (see filePathKey). */
+export function sameFilePath(a: string, b: string): boolean {
+  return filePathKey(a) === filePathKey(b)
+}
+
+/** Finds the stored key in `record` naming `filePath`: exact hit first, then case/separator-folded. */
+function findPathKey(
+  record: Record<string, string> | undefined,
+  filePath: string,
+): string | undefined {
+  if (!record) return undefined
+  if (record[filePath] !== undefined) return filePath
+  const folded = filePathKey(filePath)
+  return Object.keys(record).find((k) => filePathKey(k) === folded)
+}
+
 function readJson<T>(filePath: string): T | null {
   try {
     if (!existsSync(filePath)) return null
@@ -208,8 +241,8 @@ export class ProjectStore {
   resolveProjectForFile(filePath: string): string {
     this.ensureDefaultProject()
     const index = this.readIndex()
-    const existing = index.fileMap[filePath]
-    if (existing) return existing
+    const existingKey = findPathKey(index.fileMap, filePath)
+    if (existingKey) return index.fileMap[existingKey]
 
     // Assign to default
     index.fileMap[filePath] = 'default'
@@ -217,7 +250,7 @@ export class ProjectStore {
 
     // Update the files list in project.json
     const proj = this.readProject('default')
-    if (proj && !proj.files.includes(filePath)) {
+    if (proj && !proj.files.some((f) => sameFilePath(f, filePath))) {
       proj.files.push(filePath)
       proj.updatedAt = nowIso()
       this.writeProject(proj)
@@ -238,7 +271,8 @@ export class ProjectStore {
   /** Gets the chatId from the mapping; falls back to the path hash without registering. */
   chatIdForPath(filePath: string): string {
     const index = this.readIndex()
-    return index.chatIdByPath?.[filePath] ?? ProjectStore.chatIdForFile(filePath)
+    const key = findPathKey(index.chatIdByPath, filePath)
+    return (key ? index.chatIdByPath![key] : undefined) ?? ProjectStore.chatIdForFile(filePath)
   }
 
   /**
@@ -250,8 +284,8 @@ export class ProjectStore {
   resolveChatForFile(filePath: string): { projectId: string; chatId: string } {
     const projectId = this.resolveProjectForFile(filePath)
     const index = this.readIndex()
-    const mapped = index.chatIdByPath?.[filePath]
-    if (mapped) return { projectId, chatId: mapped }
+    const mappedKey = findPathKey(index.chatIdByPath, filePath)
+    if (mappedKey) return { projectId, chatId: index.chatIdByPath![mappedKey] }
     const chatId = ProjectStore.chatIdForFile(filePath)
     index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [filePath]: chatId }
     this.writeIndex(index)
@@ -283,20 +317,23 @@ export class ProjectStore {
   fileRenamed(oldPath: string, newPath: string): void {
     if (oldPath === newPath) return
     const index = this.readIndex()
-    const pid = index.fileMap[oldPath]
-    if (pid !== undefined) {
-      delete index.fileMap[oldPath]
+    const mapKey = findPathKey(index.fileMap, oldPath)
+    const pid = mapKey ? index.fileMap[mapKey] : undefined
+    if (mapKey && pid !== undefined) {
+      delete index.fileMap[mapKey]
       index.fileMap[newPath] = pid
       const proj = this.readProject(pid)
       if (proj) {
-        proj.files = proj.files.map((f) => (f === oldPath ? newPath : f))
+        proj.files = proj.files.map((f) => (sameFilePath(f, oldPath) ? newPath : f))
         proj.updatedAt = nowIso()
         this.writeProject(proj)
       }
     }
     // Old data without a mapping: the chatId was derived from the old path hash; register the mapping under that hash on rename so history keeps up
-    const chatId = index.chatIdByPath?.[oldPath] ?? ProjectStore.chatIdForFile(oldPath)
-    if (index.chatIdByPath?.[oldPath] !== undefined) delete index.chatIdByPath[oldPath]
+    const chatKey = findPathKey(index.chatIdByPath, oldPath)
+    const chatId =
+      (chatKey ? index.chatIdByPath![chatKey] : undefined) ?? ProjectStore.chatIdForFile(oldPath)
+    if (chatKey) delete index.chatIdByPath![chatKey]
     index.chatIdByPath = { ...(index.chatIdByPath ?? {}), [newPath]: chatId }
     this.writeIndex(index)
   }
@@ -435,13 +472,37 @@ export class ProjectStore {
    * If the target exists, don't overwrite: renumber the source messages' seq and
    * append them at the target's end (old conversations of a same-named file are kept).
    */
-  private renameOrMergeChat(
+  /**
+   * Transient-lock retry for fs moves. Right after a fold the kernel child
+   * process may still be exiting, and on Windows AV/search-indexer scans hold
+   * fresh files briefly — renameSync/unlinkSync then throw EPERM/EBUSY/EACCES.
+   * Retrying for ~2s absorbs that; failing silently used to orphan whole chat
+   * workdirs (history lost with only a console.warn).
+   */
+  private static async withFsRetry<T>(op: () => T): Promise<T> {
+    const RETRYABLE = new Set(['EPERM', 'EBUSY', 'EACCES'])
+    let lastErr: unknown
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return op()
+      } catch (err) {
+        lastErr = err
+        const code = (err as NodeJS.ErrnoException | undefined)?.code
+        if (!code || !RETRYABLE.has(code) || attempt >= 4) break
+        await new Promise((r) => setTimeout(r, 150 * 2 ** attempt))
+      }
+    }
+    throw lastErr
+  }
+
+  private async renameOrMergeChat(
     fromProjectId: string,
     fromId: string,
     toProjectId: string,
     toId: string,
-  ): void {
-    if (fromProjectId === toProjectId && fromId === toId) return
+  ): Promise<boolean> {
+    if (fromProjectId === toProjectId && fromId === toId) return true
+    let ok = true
     // The source may still have buffered opening messages: materialize them first (once the file is saved, they should be kept)
     this.flushPending(fromProjectId, fromId)
     const oldPath = this.chatPath(fromProjectId, fromId)
@@ -451,19 +512,20 @@ export class ProjectStore {
       if (existsSync(oldPath)) {
         ensureDir(dirname(newPath))
         if (!existsSync(newPath)) {
-          renameSync(oldPath, newPath)
+          await ProjectStore.withFsRetry(() => renameSync(oldPath, newPath))
         } else {
           const existing = this.loadChat(toProjectId, toId, 10_000)
           let seq = existing.reduce((m, msg) => Math.max(m, msg.seq), -1) + 1
           const moved = this.loadChat(fromProjectId, fromId, 10_000)
           const lines = moved.map((m) => JSON.stringify({ ...m, seq: seq++ }) + '\n').join('')
           if (lines) appendFileSync(newPath, lines, 'utf8')
-          unlinkSync(oldPath)
+          await ProjectStore.withFsRetry(() => unlinkSync(oldPath))
           mergedMaxSeq = seq - 1
         }
       }
     } catch (err) {
-      console.warn('[project-store] rebindChat rename failed:', err)
+      ok = false
+      console.error('[project-store] rebindChat rename failed:', err)
     }
 
     // Migrate the seq counter (when merged, the renumbered max seq wins)
@@ -480,33 +542,47 @@ export class ProjectStore {
     // file-by-file (never overwriting) when the target already has one
     const srcAttach = this.attachmentsDir(fromProjectId, fromId)
     const dstAttach = this.attachmentsDir(toProjectId, toId)
-    this.moveDirMerging(srcAttach, dstAttach, 'attachments')
+    if (!(await this.moveDirMerging(srcAttach, dstAttach, 'attachments'))) ok = false
 
     // The per-chat agent workspace (vsurf sessions, kernel artifacts) follows too
-    this.moveDirMerging(this.agentWorkDir(fromProjectId, fromId), this.agentWorkDir(toProjectId, toId), 'agent workdir')
+    if (
+      !(await this.moveDirMerging(
+        this.agentWorkDir(fromProjectId, fromId),
+        this.agentWorkDir(toProjectId, toId),
+        'agent workdir',
+      ))
+    )
+      ok = false
+    return ok
   }
 
-  /** Rename src dir onto dst; when dst exists, merge recursively without overwriting. */
-  private moveDirMerging(src: string, dst: string, label: string): void {
+  /** Rename src dir onto dst; when dst exists, merge recursively without overwriting. Returns false when anything was left behind. */
+  private async moveDirMerging(src: string, dst: string, label: string): Promise<boolean> {
+    let ok = true
     try {
-      if (!existsSync(src)) return
+      if (!existsSync(src)) return true
       if (!existsSync(dst)) {
         ensureDir(dirname(dst))
-        renameSync(src, dst)
-        return
+        await ProjectStore.withFsRetry(() => renameSync(src, dst))
+        return true
       }
       ensureDir(dst)
       for (const f of readdirSync(src)) {
         const from = join(src, f)
         const target = join(dst, f)
         if (statSync(from).isDirectory()) {
-          this.moveDirMerging(from, target, label)
+          if (!(await this.moveDirMerging(from, target, label))) ok = false
           continue
         }
         let to = target
         let n = 1
         while (existsSync(to)) to = join(dst, `${n++}-${f}`)
-        renameSync(from, to)
+        try {
+          await ProjectStore.withFsRetry(() => renameSync(from, to))
+        } catch (err) {
+          ok = false
+          console.error(`[project-store] ${label} move failed for ${f}:`, err)
+        }
       }
       try {
         rmdirSync(src)
@@ -514,31 +590,36 @@ export class ProjectStore {
         /* non-empty leftovers are fine */
       }
     } catch (err) {
-      console.warn(`[project-store] ${label} move failed:`, err)
+      console.error(`[project-store] ${label} move failed:`, err)
+      return false
     }
+    return ok
   }
 
   /**
    * Renames the JSONL file (called after an unsaved file is first written to disk):
    * chats/<tempId>.jsonl → chats/<newChatId>.jsonl (if the target exists, merge by continuing seq).
+   * Resolves false when any part of the move was left behind (see withFsRetry).
    */
-  rebindChat(projectId: string, tempId: string, newChatId: string): void {
-    this.renameOrMergeChat(projectId, tempId, projectId, newChatId)
+  rebindChat(projectId: string, tempId: string, newChatId: string): Promise<boolean> {
+    return this.renameOrMergeChat(projectId, tempId, projectId, newChatId)
   }
 
   /**
    * After an unsaved session first gets a real file path: register in fileMap,
    * compute the chatId from the path, and move the temp JSONL into the target project.
-   * Returns the new { projectId, chatId } for the renderer to update its references.
+   * Returns the new { projectId, chatId }; `moved` is false when fs moves failed
+   * even after retries (callers must keep any "active unsaved" pointers so the
+   * orphaned chat stays reachable instead of silently lost).
    */
-  rebindChatToFile(
+  async rebindChatToFile(
     tempProjectId: string,
     tempChatId: string,
     filePath: string,
-  ): { projectId: string; chatId: string } {
+  ): Promise<{ projectId: string; chatId: string; moved: boolean }> {
     const { projectId, chatId } = this.resolveChatForFile(filePath)
-    this.renameOrMergeChat(tempProjectId, tempChatId, projectId, chatId)
-    return { projectId, chatId }
+    const moved = await this.renameOrMergeChat(tempProjectId, tempChatId, projectId, chatId)
+    return { projectId, chatId, moved }
   }
 
   /**
@@ -703,7 +784,8 @@ export class ProjectStore {
   moveFileToProject(filePath: string, targetProjectId: string): void {
     this.ensureDefaultProject()
     const index = this.readIndex()
-    const fromProjectId = index.fileMap[filePath] ?? 'default'
+    const mapKey = findPathKey(index.fileMap, filePath)
+    const fromProjectId = (mapKey ? index.fileMap[mapKey] : undefined) ?? 'default'
 
     if (fromProjectId === targetProjectId) return // nothing to move
 
@@ -711,20 +793,21 @@ export class ProjectStore {
     const targetProj = this.readProject(targetProjectId)
     if (!targetProj) throw new Error(`Target project does not exist: ${targetProjectId}`)
 
-    // 1. Update fileMap
+    // 1. Update fileMap (re-key under the incoming path's canonical form)
+    if (mapKey && mapKey !== filePath) delete index.fileMap[mapKey]
     index.fileMap[filePath] = targetProjectId
     this.writeIndex(index)
 
     // 2. Update fromProject.files
     const fromProj = this.readProject(fromProjectId)
     if (fromProj) {
-      fromProj.files = fromProj.files.filter((f) => f !== filePath)
+      fromProj.files = fromProj.files.filter((f) => !sameFilePath(f, filePath))
       fromProj.updatedAt = nowIso()
       this.writeProject(fromProj)
     }
 
     // 3. Update targetProject.files
-    if (!targetProj.files.includes(filePath)) targetProj.files.push(filePath)
+    if (!targetProj.files.some((f) => sameFilePath(f, filePath))) targetProj.files.push(filePath)
     targetProj.updatedAt = nowIso()
     this.writeProject(targetProj)
 

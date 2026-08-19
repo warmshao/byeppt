@@ -1,6 +1,7 @@
 import { basename } from 'node:path'
 import { BrowserWindow } from 'electron'
 import type { Rectangle, WebContents, WebContentsView } from 'electron'
+import { sameFilePath } from '@byeppt/project-store'
 
 import {
   createSlidesView,
@@ -177,7 +178,7 @@ export class TabManager {
   ): Array<{ kind: TabKind; webContents: WebContents }> {
     const affected: Array<{ kind: TabKind; webContents: WebContents }> = []
     for (const tab of this.tabs) {
-      if (tab.filePath !== oldPath) continue
+      if (!tab.filePath || !sameFilePath(tab.filePath, oldPath)) continue
       tab.filePath = newPath
       tab.title = basename(newPath)
       if (tab.view) affected.push({ kind: tab.kind, webContents: tab.view.webContents })
@@ -234,6 +235,8 @@ export class TabManager {
   }
 
   findSlidesTabByPath(path: string): string | undefined {
-    return this.tabs.find((t) => t.kind === 'slides' && t.filePath === path)?.id
+    // folded compare: the same file via a case/separator variant must not open twice
+    return this.tabs.find((t) => t.kind === 'slides' && t.filePath && sameFilePath(t.filePath, path))
+      ?.id
   }
 }

@@ -31,7 +31,7 @@ import {
   showOpenDialogWithMemory,
   windowMenuTemplate,
 } from '@byeppt/electron-utils'
-import { ProjectStore } from '@byeppt/project-store'
+import { ProjectStore, sameFilePath } from '@byeppt/project-store'
 import { readAppSettings, writeAppSetting } from './app-settings'
 import {
   configureSlidesRuntime,
@@ -438,7 +438,9 @@ function registerHomeIpc(): void {
       if (!existsSync(path)) return { ok: false, error: tm('errMissing') }
       const target = join(dirname(path), name)
       if (target === path) return { ok: true, path }
-      if (existsSync(target)) return { ok: false, error: tm('errExists') }
+      // a case-only rename passes existsSync on case-insensitive filesystems — allow it
+      if (!sameFilePath(target, path) && existsSync(target))
+        return { ok: false, error: tm('errExists') }
       try {
         renameSync(path, target)
       } catch (err) {

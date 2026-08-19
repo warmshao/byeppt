@@ -3769,7 +3769,7 @@ export function registerProjectIpc(): void {
 
   ipcMain.handle(
     'project:rebindChat',
-    (
+    async (
       _event,
       args: { projectId: string; tempChatId: string; newChatId?: string; newFilePath?: string },
     ) => {
@@ -3777,7 +3777,7 @@ export function registerProjectIpc(): void {
       if (args.newFilePath) {
         return store.rebindChatToFile(args.projectId, args.tempChatId, args.newFilePath)
       }
-      if (args.newChatId) store.rebindChat(args.projectId, args.tempChatId, args.newChatId)
+      if (args.newChatId) await store.rebindChat(args.projectId, args.tempChatId, args.newChatId)
       return { projectId: args.projectId, chatId: args.newChatId ?? args.tempChatId }
     },
   )

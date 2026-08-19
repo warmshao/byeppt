@@ -1,4 +1,4 @@
-export { ProjectStore } from './store.js'
+export { ProjectStore, filePathKey, sameFilePath } from './store.js'
 export type {
   ChatMessage,
   ChatMeta,

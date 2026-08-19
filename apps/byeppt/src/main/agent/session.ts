@@ -14,7 +14,8 @@
  * tab (Phase 2, deck-bridge); image generation as a customTool (Phase 4).
  *
  * History: the chat panel lists a deck's past sessions straight from the
- * workdir (SessionManager.list) and resumes one via SessionManager.open(file).
+ * workdir (SessionManager.listAll — cwd-insensitive, so sessions folded from
+ * an unsaved workdir still show) and resumes one via SessionManager.open(file).
  *
  * Credentials: vsurf AuthStorage at <userData>/agent/auth.json (the only
  * secret store). The non-secret "last selected model" lives in app-settings.
@@ -27,6 +28,7 @@ import type { AgentProviderConfig } from '../app-settings'
 import { syncImageGenEnvFile, syncImageGenEnvFileTo } from '../imagegen/env'
 import { buildSlideCustomTools } from './slide-tools-main'
 import { prepareKernelEnvironment } from './kernel-env'
+import { filePathKey } from '@byeppt/project-store'
 import type { ProjectStore } from '@byeppt/project-store'
 
 /** Short preamble appended to the vsurf system prompt: orients the agent inside byeppt. */
@@ -678,10 +680,13 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
       if (args.filePath && prev && prev.deckKey !== chatId && prev.deckKey.startsWith('unsaved-')) {
         const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
         await disposeDeck(prev.deckKey)
-        store.rebindChatToFile('default', prev.deckKey, args.filePath)
+        const rebind = await store.rebindChatToFile('default', prev.deckKey, args.filePath)
         // the scratch chat now lives under the file — the next untitled deck
-        // must start a fresh unsaved chat, not re-adopt the moved (empty) one
-        if (store.getActiveUnsavedChatId() === prev.deckKey) store.setActiveUnsavedChatId(null)
+        // must start a fresh unsaved chat, not re-adopt the moved (empty) one.
+        // But only when the move actually completed: on fs failure the workdir
+        // stayed behind, and clearing the pointer would orphan it for good.
+        if (rebind.moved && store.getActiveUnsavedChatId() === prev.deckKey)
+          store.setActiveUnsavedChatId(null)
         if (oldFile) {
           const moved = join(
             store.agentWorkDir(projectId, chatId),
@@ -787,7 +792,10 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
     const s = await loadSdk()
     if (!deck || !s) return []
     try {
-      const infos = await s.SessionManager.list(deck.workdir, join(deck.workdir, 'sessions'))
+      // listAll, not list: a session folded from an unsaved workdir keeps its
+      // original header cwd, and list()'s cwd filter would hide it (empty
+      // history popover after save / close / reopen).
+      const infos = await s.SessionManager.listAll(undefined, join(deck.workdir, 'sessions'))
       const currentFile = live.get(deck.deckKey)?.sessionManager.getSessionFile()
       return infos
         .filter((i) => i.messageCount > 0)
@@ -811,8 +819,13 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
     const deck = tabDeck.get(e.sender.id)
     if (!deck) return { ok: false, error: 'unbound' }
     const file = String(sessionFile ?? '')
-    // only files inside this deck's own sessions dir are resumable
-    if (!file.startsWith(join(deck.workdir, 'sessions')) || !existsSync(file)) {
+    // only files inside this deck's own sessions dir are resumable; the
+    // compare folds case (a path recorded by the SDK may differ in casing
+    // from this run's userData string — e.g. after an app rename)
+    if (
+      !filePathKey(file).startsWith(filePathKey(join(deck.workdir, 'sessions'))) ||
+      !existsSync(file)
+    ) {
       return { ok: false, error: 'session-not-found' }
     }
     await disposeDeck(deck.deckKey)

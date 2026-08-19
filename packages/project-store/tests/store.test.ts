@@ -224,12 +224,12 @@ describe('rebindChat', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('after rebind the old chatId has no history and the new chatId does', () => {
+  it('after rebind the old chatId has no history and the new chatId does', async () => {
     store.appendChatMessage('default', 'unsaved-1234', { role: 'user', text: 'hello' })
     store.appendChatMessage('default', 'unsaved-1234', { role: 'assistant', text: 'world' })
 
     const newChatId = ProjectStore.chatIdForFile('/home/user/doc.docx')
-    store.rebindChat('default', 'unsaved-1234', newChatId)
+    await store.rebindChat('default', 'unsaved-1234', newChatId)
 
     const oldMsgs = store.loadChat('default', 'unsaved-1234')
     expect(oldMsgs).toHaveLength(0)
@@ -238,12 +238,12 @@ describe('rebindChat', () => {
     expect(newMsgs).toHaveLength(2)
   })
 
-  it('appending after rebind continues seq from the correct position', () => {
+  it('appending after rebind continues seq from the correct position', async () => {
     store.appendChatMessage('default', 'unsaved-5678', { role: 'user', text: 'msg0' })
     store.appendChatMessage('default', 'unsaved-5678', { role: 'assistant', text: 'msg1' })
 
     const newId = 'aabbccdd11223344'
-    store.rebindChat('default', 'unsaved-5678', newId)
+    await store.rebindChat('default', 'unsaved-5678', newId)
     store.appendChatMessage('default', newId, { role: 'user', text: 'msg2' })
 
     const msgs = store.loadChat('default', newId)
@@ -251,23 +251,23 @@ describe('rebindChat', () => {
     expect(msgs[2].seq).toBe(2) // seq starts at 0 and continues after rebind
   })
 
-  it('tempId === newChatId: no-op without errors', () => {
+  it('tempId === newChatId: no-op without errors', async () => {
     store.appendChatMessage('default', 'sameId', { role: 'user', text: 'hi' })
-    expect(() => store.rebindChat('default', 'sameId', 'sameId')).not.toThrow()
+    await expect(store.rebindChat('default', 'sameId', 'sameId')).resolves.toBe(true)
     expect(store.loadChat('default', 'sameId')).toHaveLength(1)
   })
 
-  it('does not throw when the source file does not exist', () => {
-    expect(() => store.rebindChat('default', 'ghost-id', 'new-id')).not.toThrow()
+  it('does not throw when the source file does not exist', async () => {
+    await expect(store.rebindChat('default', 'ghost-id', 'new-id')).resolves.toBe(true)
   })
 
-  it('merges when the target file exists: old history kept, temp messages re-sequenced at the end', () => {
+  it('merges when the target file exists: old history kept, temp messages re-sequenced at the end', async () => {
     const newId = ProjectStore.chatIdForFile('/home/user/existing.docx')
     store.appendChatMessage('default', newId, { role: 'user', text: 'old-0' })
     store.appendChatMessage('default', newId, { role: 'assistant', text: 'old-1' })
     store.appendChatMessage('default', 'unsaved-merge', { role: 'user', text: 'new-0' })
 
-    store.rebindChat('default', 'unsaved-merge', newId)
+    await store.rebindChat('default', 'unsaved-merge', newId)
 
     const msgs = store.loadChat('default', newId)
     expect(msgs.map((m) => m.text)).toEqual(['old-0', 'old-1', 'new-0'])
@@ -297,12 +297,12 @@ describe('rebindChatToFile', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('computes chatId from path, registers fileMap, returns new ids, and history is recoverable by path', () => {
+  it('computes chatId from path, registers fileMap, returns new ids, and history is recoverable by path', async () => {
     store.appendChatMessage('default', 'unsaved-9999', { role: 'user', text: 'generate a deck' })
     store.appendChatMessage('default', 'unsaved-9999', { role: 'assistant', text: 'generated' })
 
     const draftPath = '/Users/x/Documents/byeppt/AI Strategy.pptx'
-    const ids = store.rebindChatToFile('default', 'unsaved-9999', draftPath)
+    const ids = await store.rebindChatToFile('default', 'unsaved-9999', draftPath)
 
     expect(ids.chatId).toBe(ProjectStore.chatIdForFile(draftPath))
     // Simulate reopening: resolving by path yields the same projectId/chatId with full history
@@ -311,14 +311,14 @@ describe('rebindChatToFile', () => {
     expect(msgs.map((m) => m.text)).toEqual(['generate a deck', 'generated'])
   })
 
-  it('moves history into the owning project when the file already belongs to another project', () => {
+  it('moves history into the owning project when the file already belongs to another project', async () => {
     const proj = store.createProject('Research Project')
     const filePath = '/Users/x/Documents/byeppt/Beijing Research.pptx'
     store.moveFileToProject(filePath, proj.id)
 
     store.appendChatMessage('default', 'unsaved-7777', { role: 'user', text: 'hi' })
     store.appendChatMessage('default', 'unsaved-7777', { role: 'assistant', text: 'ok' })
-    const ids = store.rebindChatToFile('default', 'unsaved-7777', filePath)
+    const ids = await store.rebindChatToFile('default', 'unsaved-7777', filePath)
 
     expect(ids.projectId).toBe(proj.id)
     expect(store.loadChat(proj.id, ids.chatId)).toHaveLength(2)
@@ -373,11 +373,39 @@ describe('resolveChatForFile / fileRenamed', () => {
     expect(store.loadChat(after.projectId, after.chatId)).toHaveLength(2)
   })
 
-  it('rename after rebindChatToFile still resolves to the same history', () => {
+  it('case/separator-variant paths resolve to the same chat instead of minting a new id', () => {
+    if (process.platform === 'linux') return // case-sensitive FS: exact matching by design
+    const orig =
+      process.platform === 'win32'
+        ? 'C:\\Users\\x\\Documents\\byeppt\\Deck.pptx'
+        : '/Users/x/Documents/byeppt/Deck.pptx'
+    const variant =
+      process.platform === 'win32'
+        ? 'c:/users/x/documents/BYEPPT/deck.pptx' // drive, dir case and separators all differ
+        : '/users/x/documents/byeppt/deck.pptx'
+
+    const first = store.resolveChatForFile(orig)
+    store.appendChatMessage(first.projectId, first.chatId, { role: 'user', text: 'q' })
+
+    const again = store.resolveChatForFile(variant)
+    expect(again.chatId).toBe(first.chatId)
+    expect(store.resolveProjectForFile(variant)).toBe(first.projectId)
+    expect(store.loadChat(again.projectId, again.chatId)).toHaveLength(1)
+
+    // a rename reported with variant casing still re-keys the mapping
+    const renamed =
+      process.platform === 'win32'
+        ? 'C:\\Users\\x\\Documents\\byeppt\\Renamed.pptx'
+        : '/Users/x/Documents/byeppt/Renamed.pptx'
+    store.fileRenamed(variant, renamed)
+    expect(store.resolveChatForFile(renamed).chatId).toBe(first.chatId)
+  })
+
+  it('rename after rebindChatToFile still resolves to the same history', async () => {
     store.appendChatMessage('default', 'unsaved-1', { role: 'user', text: 'q' })
     store.appendChatMessage('default', 'unsaved-1', { role: 'assistant', text: 'a' })
     const draft = '/Users/x/Documents/byeppt/draft.pptx'
-    const ids = store.rebindChatToFile('default', 'unsaved-1', draft)
+    const ids = await store.rebindChatToFile('default', 'unsaved-1', draft)
 
     const renamed = '/Users/x/Documents/byeppt/final-name.pptx'
     store.fileRenamed(draft, renamed)
@@ -428,12 +456,12 @@ describe('appendChatMessage opening buffer', () => {
     expect(msgs.map((m) => m.seq)).toEqual([0, 1])
   })
 
-  it('buffer is materialized on rebind: user-only messages are kept with the file', () => {
+  it('buffer is materialized on rebind: user-only messages are kept with the file', async () => {
     store.appendChatMessage('default', 'unsaved-buf3', {
       role: 'user',
       text: 'generation interrupted',
     })
-    const ids = store.rebindChatToFile(
+    const ids = await store.rebindChatToFile(
       'default',
       'unsaved-buf3',
       '/Users/x/Documents/byeppt/interrupted.pptx',
