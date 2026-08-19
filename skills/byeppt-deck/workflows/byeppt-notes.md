@@ -18,7 +18,7 @@ pm`). Only the integration points below differ from upstream.
 | `source_to_md.py` conversion | `await pm.run("source_to_md", inputs=[...], output=...)`. |
 | Hand-written `svg_output/*.svg` pages | **Same** - author SVG files per the design system. |
 | `svg_quality_checker.py` gates | `await pm.run("quality_check", path=..., stage=...)` - fix errors before converting. |
-| `svg_to_pptx.py` full export | `await pm.run("svg_to_pptx", project=..., stage=...)` (deck-level postflight). |
+| `svg_to_pptx.py` full export | `await pm.run("quality_check", path=..., stage="final")` then `await pm.run("svg_to_pptx", project=...)` (gated deck-level postflight). |
 | Live-preview browser editor | **Per-page live import**: `convert_page` + `import_pptx_slides(append)`; revisions use `replace_at`. The byeppt canvas is the preview. |
 | `image_gen.py --manifest` | `await pm.run("image_gen", manifest=...)` - shares the Settings image backend via the kernel env. |
 | `image_search.py` / review sheets | `await pm.run("search_images", ...)`; visual judgment by the agent; attribution rules in `references/executor-web-image.md`. |

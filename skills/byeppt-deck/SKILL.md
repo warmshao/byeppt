@@ -122,7 +122,8 @@ When a page needs rework (user feedback or visual self-check):
 
 1. Visual pass: `view_slide` each page (or at least covers, charts, dense
    pages); fix via the revision loop.
-2. `await pm.run("svg_to_pptx", project="deck", stage="final")` - deck-level
+2. `await pm.run("quality_check", path="deck", stage="final")` (deck-level
+   final gate), then `await pm.run("svg_to_pptx", project="deck")` -
    postflight report + canonical export in `exports/`.
 3. `finalize_svg` only when a self-contained `svg_final/` preview is useful.
 

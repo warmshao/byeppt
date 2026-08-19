@@ -1,6 +1,6 @@
 ---
 name: byeppt-pptx-py
-description: ppt-master's deterministic SVG pipeline for deck generation — source conversion (PDF/DOCX/XLSX/PPTX/web to Markdown), project scaffolding, SVG quality gates, single-page/full-deck SVG-to-PPTX, and PPTX-to-SVG semantic re-import. This is the MAIN path for creating new decks; call it from the IPython kernel as byeppt_pptx_py.
+description: ppt-master's deterministic SVG pipeline for deck generation — source conversion (PDF/DOCX/XLSX/PPTX/web to Markdown), project scaffolding, SVG quality gates, single-page/full-deck SVG-to-PPTX, PPTX-to-SVG semantic re-import, and AI IMAGE GENERATION (any request to create/draw a picture, illustration, icon, or photo goes through image_gen). This is the MAIN path for creating new decks; call it from the IPython kernel as byeppt_pptx_py.
 ---
 
 # byeppt-pptx-py
@@ -18,7 +18,7 @@ import byeppt_pptx_py as pm
 await pm.run("source_to_md", inputs=["report.docx"], output="analysis/report.md")
 await pm.run("quality_check", path="svg_output/P01.svg", stage="final")
 await pm.run("convert_page", svg_path="svg_output/P01.svg", project=".")
-await pm.run("svg_to_pptx", project=".", stage="final")
+await pm.run("svg_to_pptx", project=".")
 ```
 
 ## Actions
@@ -27,14 +27,14 @@ await pm.run("svg_to_pptx", project=".", stage="final")
 |---|---|
 | `source_to_md` | Convert sources (PDF/DOCX/XLSX/PPTX/web/text) to Markdown + image manifests. Args: `inputs` (list), `output`, `source_type`, `images`, `json_mode`, `extra_args`. |
 | `project_init` | Scaffold a ppt-master project (`name`, `format='ppt169'`, `base_dir`). |
-| `project_manager` | Generic passthrough (`import-sources`, `validate`, `info`, ...). |
+| `project_manager` | Generic passthrough — `args` is the CLI argument list, e.g. `["validate", "deck"]` or `["import-sources", "deck", "a.pdf"]`. |
 | `page_context` | Deterministic per-page context (`project`, `page='P07'`) — reload state after compaction. |
-| `icon_sync` | Copy icons into `<project>/icons/` (`project`, `*icons` like `tabler-outline/home`). |
+| `icon_sync` | Copy icons into `<project>/icons/` (`project`, `icons` = one name or a list like `["tabler-outline/home"]`). |
 | `image_gen` | Single or `manifest` batch image generation via the Settings backend. |
 | `search_images` | Openly-licensed web photos (openverse/wikimedia; pexels/pixabay via env keys). |
 | `quality_check` | SVG quality gate (`path` = file or project dir, `stage`). Fix errors before converting. |
 | `convert_page` | Convert ONE SVG to a single-slide PPTX; returns the pptx path. |
-| `svg_to_pptx` | Convert the whole `svg_output/` project to native PPTX (`project`, `stage`). |
+| `svg_to_pptx` | Gated release export of the whole `svg_output/` project to native PPTX in `exports/` — just `project`; requires a passing final `quality_check` on the project first. (`source` is a diagnostic override only.) |
 | `finalize_svg` | Self-contained preview SVGs (`svg_final/`). |
 | `pptx_to_svg` | Semantic PPTX re-import (`pptx_file`, `output`, `inheritance_mode`, `strict`). |
 | `svg_authoring_view` | Lightweight editable IR from imported SVGs (`svg`, `output`, `projection_kind`). |

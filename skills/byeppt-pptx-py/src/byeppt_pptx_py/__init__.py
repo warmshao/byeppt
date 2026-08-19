@@ -59,9 +59,53 @@ async def _run_script(script: str, *args: str) -> str:
     return await asyncio.to_thread(_run_script_blocking, script, args)
 
 
-async def svg_to_pptx(project: str, stage: str = 'final') -> str:
-    """Convert a ppt-master project's svg_output/ into a native PPTX (exports/)."""
-    return await _run_script('svg_to_pptx.py', project, '-s', stage)
+def _as_list(value, name: str) -> list[str]:
+    """Accept a single string or a list of strings; fail loudly otherwise.
+
+    run() dispatches keyword arguments, so multi-value parameters arrive as
+    lists — keep every helper forgiving about the single-value form.
+    """
+    if isinstance(value, str):
+        return [value]
+    try:
+        return [str(v) for v in value]
+    except TypeError:
+        raise ValueError(f'{name} must be a string or a list of strings') from None
+
+
+async def svg_to_pptx(project: str, source: str | None = None,
+                      stage: str | None = None) -> str:
+    """Convert a ppt-master project's svg_output/ into a native PPTX (exports/).
+
+    The default is the gated release export: it reads ``svg_output/`` and
+    requires a passing final quality report — run
+    ``quality_check(project, stage='final')`` first. ``source`` is a
+    diagnostic override only ('final' reads svg_final/ after finalize_svg,
+    any other value names a project subdirectory). ``stage`` is a deprecated
+    alias tolerated for older prompts: only 'final' is accepted and it
+    selects the default release export.
+    """
+    if stage is not None:
+        if source is not None:
+            raise ValueError('pass either source or the deprecated stage, not both')
+        if stage != 'final':
+            raise ValueError(
+                f"unknown stage {stage!r}; the release export takes no stage "
+                "argument (use source= only as a diagnostic override)")
+    proj = Path(project).resolve()
+    if not proj.is_dir():
+        raise ValueError(
+            f'project directory not found: {proj} — pass the ppt-master '
+            'project directory containing svg_output/')
+    if source is None and not (proj / 'svg_output').is_dir():
+        raise ValueError(
+            f'{proj} has no svg_output/ — pass the ppt-master project '
+            'directory itself (the one containing svg_output/), not a file '
+            'or a parent/child of it')
+    args = [str(proj)]
+    if source:
+        args += ['-s', source]
+    return await _run_script('svg_to_pptx.py', *args)
 
 
 async def quality_check(path: str, stage: str | None = None) -> str:
@@ -78,16 +122,17 @@ async def finalize_svg(project: str) -> str:
 
 
 async def search_images(query: str, output: str, filename: str | None = None,
-                        *extra_args: str) -> str:
+                        extra_args: list[str] | None = None) -> str:
     """Search/download openly-licensed web images (openverse/wikimedia/pexels/pixabay).
 
     Single-query download: search_images('berlin skyline dusk', '/tmp/imgs', 'cover.jpg')
-    Batch/shortlist mode: pass extra_args like '--batch' / '--shortlist' per image_search.py --help.
+    Batch/shortlist mode: pass extra_args like ['--batch'] / ['--shortlist']
+    per image_search.py --help.
     """
     args = [query, '-o', output]
     if filename:
         args += ['--filename', filename]
-    return await _run_script('image_search.py', *args, *extra_args)
+    return await _run_script('image_search.py', *args, *(extra_args or []))
 
 
 async def remove_gemini_watermark(input_path: str, output: str | None = None) -> str:
@@ -98,12 +143,17 @@ async def remove_gemini_watermark(input_path: str, output: str | None = None) ->
     return await _run_script('gemini_watermark_remover.py', *args)
 
 
-async def source_to_md(*inputs: str, output: str | None = None,
+async def source_to_md(inputs: str | list[str], *, output: str | None = None,
                        source_type: str | None = None,
                        images: str | None = None,
                        json_mode: bool = False,
                        extra_args: list[str] | None = None) -> str:
-    """Convert PDF/DOCX/XLSX/PPTX/web/text sources to Markdown (+ image manifests)."""
+    """Convert PDF/DOCX/XLSX/PPTX/web/text sources to Markdown (+ image manifests).
+
+    inputs: one path/URL or a list of them. The remaining options are
+    keyword-only so a stray positional can never bind to ``output``.
+    """
+    inputs = _as_list(inputs, 'inputs')
     if not inputs:
         raise ValueError('source_to_md requires at least one input path or URL')
     args = list(inputs)
@@ -171,15 +221,24 @@ async def page_context(project: str, page: str, *, pretty: bool = False,
     return await _run_script('project_manager.py', *args)
 
 
-async def project_manager(*args: str) -> str:
-    """Generic project_manager.py passthrough (import-sources, validate, ...)."""
-    if not args:
+async def project_manager(args: str | list[str]) -> str:
+    """Generic project_manager.py passthrough (import-sources, validate, ...).
+
+    args is the CLI argument list, e.g. ['import-sources', 'deck', 'a.pdf']
+    or ['validate', 'deck']. A plain string is treated as ONE argument.
+    """
+    argv = _as_list(args, 'args')
+    if not argv:
         raise ValueError('project_manager requires a subcommand')
-    return await _run_script('project_manager.py', *args)
+    return await _run_script('project_manager.py', *argv)
 
 
-async def icon_sync(project: str, *icons: str) -> str:
-    """Copy icons from the bundled libraries into <project>/icons/."""
+async def icon_sync(project: str, icons: str | list[str]) -> str:
+    """Copy icons from the bundled libraries into <project>/icons/.
+
+    icons: one icon name or a list, like 'tabler-outline/home'.
+    """
+    icons = _as_list(icons, 'icons')
     if not icons:
         raise ValueError('icon_sync requires at least one icon like tabler-outline/home')
     return await _run_script('icon_sync.py', project, *icons)
@@ -289,6 +348,12 @@ async def run(action: str, **kwargs) -> str:
           | 'remove_gemini_watermark' | 'source_to_md' | 'pptx_to_svg'
           | 'svg_authoring_view' | 'project_init' | 'page_context'
           | 'project_manager' | 'icon_sync' | 'image_gen' | 'convert_page'
+
+    Every parameter is passed as a keyword argument. Multi-value parameters
+    take a list (or a single value): source_to_md(inputs=[...]),
+    icon_sync(icons=[...]), project_manager(args=['validate', project]),
+    search_images/image_gen/source_to_md/extra_args=[...]. svg_to_pptx takes
+    just project= for the gated release export (run quality_check first).
     """
     actions = {
         'svg_to_pptx': svg_to_pptx,
