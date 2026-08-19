@@ -84,7 +84,7 @@ function ensureKernelRuntime(context) {
 /** @type {import('electron-builder').Configuration} */
 const config = {
   appId: 'com.byeppt.app',
-  productName: 'byeppt',
+  productName: 'ByePPT',
   // Resolved from the installed electron package so dependency bumps can
   // never leave a stale hard-coded pin behind (packaging would silently ship
   // the old runtime).
