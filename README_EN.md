@@ -34,7 +34,5 @@ Download the installer for your platform from [Releases](https://github.com/warm
 
 [AGPL-3.0](./LICENSE)
 
-[中文文档](./README.md)
-
 
 
