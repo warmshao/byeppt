@@ -98,7 +98,7 @@ Prefer MinerU or another OCR/layout tool when:
 Dependency:
 
 ```bash
-pip install PyMuPDF
+pip install pdfplumber pypdfium2
 ```
 
 ## `source_to_md/doc_to_md.py`

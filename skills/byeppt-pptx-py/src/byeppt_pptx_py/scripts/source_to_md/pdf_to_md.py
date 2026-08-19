@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PDF to Markdown Converter
-Uses PyMuPDF to extract PDF text content and convert to Markdown format.
+Uses pdfplumber + pypdfium2 to extract PDF text content and convert to Markdown format.
 Supports heading levels, bold, italic, and list detection.
 """
 
@@ -25,9 +25,9 @@ from _conversion_profile import write_conversion_profile_best_effort  # noqa: E4
 configure_utf8_stdio()
 
 try:
-    import fitz  # PyMuPDF
+    import _fitz_compat as fitz  # pdfplumber + pypdfium2 backend
 except ImportError:
-    print("[ERROR] PyMuPDF not installed. Run: pip install PyMuPDF", file=sys.stderr)
+    print("[ERROR] pdfplumber/pypdfium2 not installed. Run: pip install pdfplumber pypdfium2", file=sys.stderr)
     sys.exit(1)
 
 FONT_BODY_SIZE = 12
