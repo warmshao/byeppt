@@ -88,9 +88,12 @@ const config = {
   // Update feed for electron-updater (Settings → 通用 → 检查更新): embeds
   // app-update.yml into the package and makes the nsis/AppImage builds emit
   // latest.yml / latest-linux.yml + blockmaps, which the release workflow
-  // uploads alongside the installers. No --publish flag is passed, so nothing
-  // is uploaded by electron-builder itself. (macOS builds are unsigned and
-  // use a manual GitHub-API check instead — Squirrel.Mac requires signing.)
+  // uploads alongside the installers. The dist:* scripts pass --publish
+  // never: electron-builder's default onTagOrDraft policy would otherwise
+  // try to publish from CI tag builds and die without GH_TOKEN — uploading
+  // is the release workflow's job (action-gh-release), not the builder's.
+  // (macOS builds are unsigned and use a manual GitHub-API check instead —
+  // Squirrel.Mac requires signing.)
   publish: [{ provider: 'github', owner: 'warmshao', repo: 'byeppt' }],
   // Resolved from the installed electron package so dependency bumps can
   // never leave a stale hard-coded pin behind (packaging would silently ship

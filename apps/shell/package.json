@@ -13,11 +13,11 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "electron-vite build && electron .",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:mac:arm64": "electron-vite build && electron-builder --mac --arm64",
-    "dist:mac:x64": "electron-vite build && electron-builder --mac --x64",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never",
+    "dist:mac:arm64": "electron-vite build && electron-builder --mac --arm64 --publish never",
+    "dist:mac:x64": "electron-vite build && electron-builder --mac --x64 --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "dist:linux": "electron-vite build && electron-builder --linux --publish never"
   },
   "devDependencies": {
     "@byeppt/app": "*",
