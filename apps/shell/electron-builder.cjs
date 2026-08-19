@@ -158,6 +158,7 @@ const config = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     artifactName: `ByePPT-\${version}-setup.\${ext}`,
+    include: 'build/installer.nsh',
   },
   linux: {
     // the bundled kernel wheelhouse is resolved for <=manylinux_2_28 wheels,
@@ -172,7 +173,7 @@ const config = {
     syncDesktopName: true,
   },
   // ByePPT-0.1.0.AppImage
-  AppImage: {
+  appImage: {
     artifactName: `ByePPT-\${version}.\${ext}`,
   },
   beforePack: async (context) => {
