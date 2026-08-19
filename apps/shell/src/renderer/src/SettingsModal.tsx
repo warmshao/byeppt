@@ -410,26 +410,25 @@ export function SettingsModal({ onClose, initialSection }: SettingsModalProps) {
                     </a>
                   </div>
                 </div>
-                <Field
-                  label="GitHub"
-                  value="warmshao/byeppt"
-                  action={
-                    <button
-                      className="set-btn set-btn-star"
-                      onClick={() =>
-                        void window.aiOffice.openExternal('https://github.com/warmshao/byeppt')
-                      }
-                    >
-                      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-                        <path
-                          d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.5l-3.8 2 .7-4.3-3.1-3 4.3-.6L8 1.6z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                      {t('starOnGitHub')}
-                    </button>
-                  }
-                />
+                <div className="set-field">
+                  <div className="set-field-text">
+                    <div className="set-field-label">GitHub</div>
+                  </div>
+                  <button
+                    className="set-btn set-btn-star"
+                    onClick={() =>
+                      void window.aiOffice.openExternal('https://github.com/warmshao/byeppt')
+                    }
+                  >
+                    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                      <path
+                        d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.5l-3.8 2 .7-4.3-3.1-3 4.3-.6L8 1.6z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                    {t('starOnGitHub')}
+                  </button>
+                </div>
               </>
             )}
           </div>

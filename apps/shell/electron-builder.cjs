@@ -133,8 +133,8 @@ const config = {
   mac: {
     target: ['dmg'],
     category: 'public.app-category.productivity',
-    // ByePPT-0.1.0-arm64.dmg / ByePPT-0.1.0-x64.dmg
-    artifactName: `ByePPT-\${version}-\${arch}.\${ext}`,
+    // ByePPT-0.1.0-macos-arm64.dmg / ByePPT-0.1.0-macos-x64.dmg
+    artifactName: `ByePPT-\${version}-macos-\${arch}.\${ext}`,
     // Signing is opt-in via CI secrets: when CSC_LINK (base64 .p12) is present
     // electron-builder picks the identity up automatically; locally it stays
     // explicitly unsigned. Notarization likewise activates when the App Store
@@ -153,11 +153,11 @@ const config = {
       },
     ],
   },
-  // ByePPT-0.1.0-setup.exe
+  // ByePPT-0.1.0-windows-x64-setup.exe
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
-    artifactName: `ByePPT-\${version}-setup.\${ext}`,
+    artifactName: `ByePPT-\${version}-windows-\${arch}-setup.\${ext}`,
   },
   linux: {
     // the bundled kernel wheelhouse is resolved for <=manylinux_2_28 wheels,
@@ -171,9 +171,9 @@ const config = {
     executableName: 'byeppt',
     syncDesktopName: true,
   },
-  // ByePPT-0.1.0.AppImage
+  // ByePPT-0.1.0-linux-x64.AppImage
   appImage: {
-    artifactName: `ByePPT-\${version}.\${ext}`,
+    artifactName: `ByePPT-\${version}-linux-\${arch}.\${ext}`,
   },
   beforePack: async (context) => {
     assertModuleTreesPresent()
