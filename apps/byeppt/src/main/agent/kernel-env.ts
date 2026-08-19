@@ -48,7 +48,7 @@ export function userProgressMessage(raw: string): string | null {
   const msg = raw.replace(ANSI_SGR, '')
   if (KERNEL_NOISE.some((re) => re.test(msg))) return null
   if (/installing uv/i.test(msg)) return '正在安装 Python 工具（uv，一次性）…'
-  if (/setting up python kernel/i.test(msg)) return '正在准备 Python 运行环境（首次需联网，约 30 秒）…'
+  if (/setting up python kernel/i.test(msg)) return '正在准备 Python 运行环境（首次约 1 分钟）…'
   if (/rebuilding kernel venv/i.test(msg)) return '正在重建 Python 运行环境…'
   if (/^\s*\u2713\s*ready/i.test(msg)) return 'Python 运行环境就绪 ✓'
   return msg
@@ -432,7 +432,8 @@ export async function provisionKernelSkills(
     pythonSkills,
   })
   try {
-    onProgress?.('正在准备 Python 运行环境（首次需下载 Python 与依赖，请稍候）…')
+    // no path-specific message here — the caller (offline assembly vs online
+    // bootstrap) announces what is actually happening
     await provisioner.ensure(onProgress)
     mkdirSync(agentDir(), { recursive: true })
     writeFileSync(
@@ -478,6 +479,7 @@ export async function prepareKernelEnvironment(
   }
   // Dev checkout without a fetched runtime: online bootstrap under the
   // unified network policy (proxy when configured, China mirrors otherwise).
+  progress('正在准备 Python 运行环境（首次需下载 Python 与依赖，可能需要几分钟）…')
   const restore = patchEnv(await spawnNetworkEnv())
   const out: { ok: boolean; error?: string } = { ok: true }
   try {

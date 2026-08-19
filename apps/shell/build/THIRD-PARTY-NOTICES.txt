@@ -7,7 +7,7 @@ Chromium (bundled via Electron) is licensed under BSD-style and other
 licenses — see LICENSES.chromium.html next to this file.
 
 ========================================================================
-1. npm packages (316)
+1. npm packages (317)
 ========================================================================
 
 ------------------------------------------------------------------------
@@ -4490,7 +4490,13 @@ Licensed under MIT.
 https://github.com/badlogic/clipboard
 
 ------------------------------------------------------------------------
-@mariozechner/clipboard-win32-x64-msvc v0.3.9 — MIT
+@mariozechner/clipboard-darwin-universal v0.3.9 — MIT
+------------------------------------------------------------------------
+Licensed under MIT.
+https://github.com/badlogic/clipboard
+
+------------------------------------------------------------------------
+@mariozechner/clipboard-darwin-x64 v0.3.9 — MIT
 ------------------------------------------------------------------------
 Licensed under MIT.
 https://github.com/badlogic/clipboard
@@ -4726,7 +4732,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ------------------------------------------------------------------------
-@napi-rs/canvas-win32-x64-msvc v1.0.6 — MIT
+@napi-rs/canvas-darwin-x64 v1.0.6 — MIT
 ------------------------------------------------------------------------
 Licensed under MIT.
 https://github.com/Brooooooklyn/canvas
