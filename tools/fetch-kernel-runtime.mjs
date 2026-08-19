@@ -183,7 +183,12 @@ async function main() {
   mkdirSync(outDir, { recursive: true })
 
   const manifestPath = join(outDir, 'manifest.json')
-  const manifest = { uvVersion: UV_VERSION, pbsTag: PBS_TAG, pbsPython: PBS_PYTHON, platform, arch }
+  // The requirements fingerprint goes into the manifest: a skill pyproject
+  // dep change (e.g. swapping PyMuPDF for pdfplumber) must rebuild the
+  // wheelhouse even when the pinned uv/python versions are unchanged.
+  const reqs = [...BASE_REQUIREMENTS, ...skillRequirements()]
+  const reqsHash = createHash('sha256').update(reqs.join('\n')).digest('hex')
+  const manifest = { uvVersion: UV_VERSION, pbsTag: PBS_TAG, pbsPython: PBS_PYTHON, platform, arch, reqsHash }
   const upToDate =
     existsSync(manifestPath) &&
     JSON.stringify(JSON.parse(readFileSync(manifestPath, 'utf8')), null, 0) ===
@@ -244,7 +249,6 @@ async function main() {
     console.log(`[3/3] wheelhouse for ${key}`)
     rmSync(wheelhouse, { recursive: true, force: true })
     mkdirSync(wheelhouse, { recursive: true })
-    const reqs = [...BASE_REQUIREMENTS, ...skillRequirements()]
     const pipArgs = [
       '-m', 'pip', 'download', '--only-binary=:all:', '--python-version', '3.11',
       ...target.pipPlatforms.flatMap((p) => ['--platform', p]),

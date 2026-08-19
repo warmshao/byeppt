@@ -45,12 +45,13 @@ const KERNEL_NOISE = [
 
 /** Map a raw vsurf bootstrap message to a user-facing line, or null to skip. */
 export function userProgressMessage(raw: string): string | null {
-  if (KERNEL_NOISE.some((re) => re.test(raw))) return null
-  if (/installing uv/i.test(raw)) return '正在安装 Python 工具（uv，一次性）…'
-  if (/setting up python kernel/i.test(raw)) return '正在准备 Python 运行环境（首次需联网，约 30 秒）…'
-  if (/rebuilding kernel venv/i.test(raw)) return '正在重建 Python 运行环境…'
-  if (/^\s*\u2713\s*ready/i.test(raw)) return 'Python 运行环境就绪 ✓'
-  return raw
+  const msg = raw.replace(ANSI_SGR, '')
+  if (KERNEL_NOISE.some((re) => re.test(msg))) return null
+  if (/installing uv/i.test(msg)) return '正在安装 Python 工具（uv，一次性）…'
+  if (/setting up python kernel/i.test(msg)) return '正在准备 Python 运行环境（首次需联网，约 30 秒）…'
+  if (/rebuilding kernel venv/i.test(msg)) return '正在重建 Python 运行环境…'
+  if (/^\s*\u2713\s*ready/i.test(msg)) return 'Python 运行环境就绪 ✓'
+  return msg
 }
 
 const UV_DIR = join(homedir(), '.local', 'bin')
@@ -244,9 +245,21 @@ export function resolveKernelPython(): string {
   return process.platform === 'win32' ? join(venv, 'Scripts', 'python.exe') : join(venv, 'bin', 'python')
 }
 
+/** Strip ANSI SGR escape sequences (colors). uv colorizes output even when
+ * piped in some environments; captured text used as a PATH or shown in the UI
+ * must never carry them (a colored `uv python dir` once became a real
+ * directory named "<ESC>[36m" under the cwd). */
+// eslint-disable-next-line no-control-regex
+const ANSI_SGR = /(?:)?\[\d+(?:;\d+)*m/g
+
+/** Spawn env for child tools: inherit everything, but disable color at the source. */
+function childEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, NO_COLOR: '1', UV_NO_COLOR: '1' }
+}
+
 function runChecked(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, args, { windowsHide: true, stdio: 'ignore' })
+    const child = spawn(cmd, args, { windowsHide: true, stdio: 'ignore', env: childEnv() })
     child.on('error', reject)
     child.on('exit', (code) =>
       code === 0
@@ -256,15 +269,17 @@ function runChecked(cmd: string, args: string[]): Promise<void> {
   })
 }
 
-/** Run a command and capture its stdout (trimmed). */
+/** Run a command and capture its stdout (trimmed, ANSI-stripped). */
 function runCapture(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(cmd, args, { windowsHide: true })
+    const child = spawn(cmd, args, { windowsHide: true, env: childEnv() })
     let out = ''
     child.stdout.on('data', (d) => (out += String(d)))
     child.on('error', reject)
     child.on('exit', (code) =>
-      code === 0 ? resolvePromise(out.trim()) : reject(new Error(`${cmd} exited ${code}`)),
+      code === 0
+        ? resolvePromise(out.replace(ANSI_SGR, '').trim())
+        : reject(new Error(`${cmd} exited ${code}`)),
     )
   })
 }
