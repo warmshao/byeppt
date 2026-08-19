@@ -1,6 +1,6 @@
 {
   "name": "byeppt",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "AI-native presentation studio (editor + agent-driven deck generation)",
   "license": "AGPL-3.0-only",
