@@ -129,6 +129,8 @@ system mode).
 
 ## Licensing
 
-Apache-2.0 (see LICENSE/NOTICE). The `skills/byeppt-deck` assets derive from
-ppt-master (MIT, Hugo He) — keep its LICENSE and attribution. Never reintroduce
-GenOffice/Genspark names, logos, or API endpoints (trademarks of Mainfunc).
+AGPL-3.0-only (see LICENSE/NOTICE; portions derived from the Apache-2.0
+GenOffice codebase remain under Apache-2.0 per NOTICE). The
+`skills/byeppt-deck` assets derive from ppt-master (MIT, Hugo He) — keep its
+LICENSE and attribution. Never reintroduce GenOffice/Genspark names, logos,
+or API endpoints (trademarks of Mainfunc).

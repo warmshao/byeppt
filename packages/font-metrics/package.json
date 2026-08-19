@@ -1,7 +1,7 @@
 {
   "name": "@byeppt/font-metrics",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "description": "System font location and vertical-metrics extraction for the Electron main processes (targeted sfnt table reads, no whole-file parsing)",

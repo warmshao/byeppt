@@ -2,7 +2,7 @@
   "name": "@byeppt/app",
   "productName": "ByePPT",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "AI-native presentation studio: byte-fidelity pptx editing + agent-driven deck generation",
   "main": "out/main/index.js",

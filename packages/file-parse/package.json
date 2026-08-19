@@ -1,7 +1,7 @@
 {
   "name": "@byeppt/file-parse",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "description": "shared attachment parsing: pdf/docx/pptx/xlsx and plain-text formats to text; images flagged for multimodal input",

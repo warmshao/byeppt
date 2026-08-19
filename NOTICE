@@ -1,8 +1,13 @@
 byeppt
 Copyright 2026 byeppt contributors
 
+byeppt as a whole is licensed under the GNU Affero General Public License
+version 3 (AGPL-3.0-only) — see LICENSE.
+
 This product includes software developed at Mainfunc, Inc. (the GenOffice
-slides editor and shared packages, Apache License 2.0).
+slides editor and shared packages). Those portions remain licensed under the
+Apache License 2.0 by their copyright holder and are used here in accordance
+with that license; the work as a whole is distributed under AGPL-3.0.
 
 This product includes material from ppt-master
 (https://github.com/hugohe3/ppt-master), Copyright (c) 2025-2026 Hugo He,

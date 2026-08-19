@@ -2,7 +2,7 @@
   "name": "@byeppt/shell",
   "productName": "ByePPT",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "byeppt desktop shell: home/launcher window + tab strip hosting the slides editor as WebContentsView tabs",
   "main": "out/main/index.js",

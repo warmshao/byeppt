@@ -1,7 +1,7 @@
 {
   "name": "@byeppt/ui",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "description": "Shared renderer UI components for the office apps (AI panel composer, icons); styling stays per-app via the shared class names",

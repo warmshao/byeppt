@@ -1,7 +1,7 @@
 {
   "name": "@byeppt/electron-utils",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "description": "Shared helpers for the Electron main processes (no Electron dependency, pure TS)",

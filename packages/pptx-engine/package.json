@@ -1,7 +1,7 @@
 {
   "name": "@byeppt/pptx-engine",
   "version": "0.1.0",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "description": "pptx parsing (Slide element tree with byte anchors + inheritance resolution), OOXML fragment generation, element-patch save",
