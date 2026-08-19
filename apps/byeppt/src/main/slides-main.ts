@@ -238,7 +238,7 @@ import { buildPrintDocumentHtml } from '../shared/print-html'
 import { tm } from './i18n-main'
 import { readAppSettings, updateAppSettings } from './app-settings'
 import { applyProxyToMainProcess } from './net-policy'
-import { registerAgentIpc } from './agent/session'
+import { registerAgentIpc, resolveUnsavedChatId } from './agent/session'
 import { registerImageGenIpc } from './imagegen/ipc'
 import { tiffToPng } from './tiff-decode'
 import {
@@ -3790,7 +3790,7 @@ export function registerProjectIpc(): void {
   ipcMain.handle(
     'agent:save-attachments',
     (
-      _event,
+      event,
       args: {
         filePath: string | null
         tempChatId?: string
@@ -3800,9 +3800,15 @@ export function registerProjectIpc(): void {
       try {
         const store = getSlidesProjectStore()
         store.ensureDefaultProject()
+        // Same resolution as agent:bind — a bound tab's adopted unsaved chat
+        // must win over the renderer's per-mount temp id, or pasted files
+        // land in a different folder than the session workdir.
         const { projectId, chatId } = args.filePath
           ? store.resolveChatForFile(args.filePath)
-          : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
+          : {
+              projectId: 'default',
+              chatId: resolveUnsavedChatId(store, args.tempChatId, event.sender.id),
+            }
         const dir = store.attachmentsDir(projectId, chatId)
         mkdirSync(dir, { recursive: true })
         const saved: Array<{

@@ -78,7 +78,17 @@ export interface AgentApi {
   bind: (args: {
     filePath: string | null
     tempChatId?: string
-  }) => Promise<{ ok: boolean; deckKey?: string; error?: string }>
+  }) => Promise<{
+    ok: boolean
+    deckKey?: string
+    /**
+     * Unsaved-chat adoption only: the newest session file of the chat this
+     * deck re-attached to (previous app run's scratch chat). The panel may
+     * auto-resume it so the conversation visibly survives relaunches.
+     */
+    continueSessionFile?: string
+    error?: string
+  }>
   /** This deck's past sessions, newest first */
   listSessions: () => Promise<AgentSessionSummary[]>
   /** Resume a past session; returns its messages for the panel to replay */

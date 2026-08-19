@@ -20,7 +20,7 @@
  * secret store). The non-secret "last selected model" lives in app-settings.
  */
 import { app, ipcMain, shell, webContents } from 'electron'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
 import type { AgentProviderConfig } from '../app-settings'
@@ -101,6 +101,56 @@ const starting = new Map<string, Promise<AgentSession | null>>()
 const pendingResume = new Map<string, string>()
 /** project-store accessor injected by registerAgentIpc (avoids a slides-main import cycle) */
 let getStore: (() => ProjectStore) | null = null
+
+/**
+ * Resolves the chatId for an UNSAVED (untitled) deck. The renderer can only
+ * offer a per-mount temp id (`unsaved-<ts>`) — a fresh one every app launch,
+ * which used to orphan the previous run's sessions (empty history popover
+ * after a restart). Instead the store keeps one persisted "active unsaved
+ * chat" pointer: a post-restart untitled deck re-attaches to it, so its
+ * sessions, history and materials survive relaunches. Rules:
+ * - a tab that already holds an unsaved binding keeps it (same-run rebind);
+ * - a temp id with its own existing workdir keeps its identity;
+ * - the persisted pointer is adopted unless another live tab holds it (a
+ *   second simultaneous untitled tab never steals the first tab's chat);
+ * - otherwise the fresh temp id starts a new unsaved chat.
+ * Also used by the agent:save-attachments handler so pasted files land in the
+ * same chat folder as the session workdir.
+ */
+export function resolveUnsavedChatId(
+  store: ProjectStore,
+  tempChatId?: string,
+  wcId?: number,
+): string {
+  if (wcId !== undefined) {
+    const bound = tabDeck.get(wcId)?.deckKey
+    if (bound?.startsWith('unsaved-')) return bound
+  }
+  const fresh = tempChatId ?? `unsaved-${Date.now()}`
+  if (existsSync(store.agentWorkDir('default', fresh))) return fresh
+  const persisted = store.getActiveUnsavedChatId()
+  if (persisted && existsSync(store.agentWorkDir('default', persisted))) {
+    const heldByLiveTab = [...tabDeck.values()].some((d) => d.deckKey === persisted)
+    if (!heldByLiveTab) return persisted
+  }
+  return fresh
+}
+
+/** Newest *.jsonl in a deck's sessions dir (by mtime), if any — offered to the panel for auto-resume after an unsaved-chat adoption. */
+function latestSessionFile(sessionDir: string): string | undefined {
+  try {
+    let best: { file: string; mtime: number } | undefined
+    for (const name of readdirSync(sessionDir)) {
+      if (!name.endsWith('.jsonl')) continue
+      const file = join(sessionDir, name)
+      const mtime = statSync(file).mtimeMs
+      if (!best || mtime > best.mtime) best = { file, mtime }
+    }
+    return best?.file
+  } catch {
+    return undefined
+  }
+}
 
 /** First-run kernel env bootstrap runs once per app, not once per deck session. */
 let kernelPrep: Promise<unknown> | null = null
@@ -609,10 +659,19 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
       const store = getStore?.()
       if (!store) return { ok: false, error: 'store-unavailable' }
       store.ensureDefaultProject()
+      const wcId = e.sender.id
       const { projectId, chatId } = args.filePath
         ? store.resolveChatForFile(args.filePath)
-        : { projectId: 'default', chatId: args.tempChatId ?? `unsaved-${Date.now()}` }
-      const wcId = e.sender.id
+        : { projectId: 'default', chatId: resolveUnsavedChatId(store, args.tempChatId, wcId) }
+      if (!args.filePath) {
+        // Keep the active-unsaved pointer current — but only adopt-or-create:
+        // a second simultaneous untitled tab (fresh id while the pointer is
+        // held by a live tab) must not steal it.
+        const cur = store.getActiveUnsavedChatId()
+        if (!cur || cur === chatId || !existsSync(store.agentWorkDir('default', cur))) {
+          store.setActiveUnsavedChatId(chatId)
+        }
+      }
       const prev = tabDeck.get(wcId)
       // The renderer defers rebinds while a run streams (ChatPanel), so this
       // fold only ever disposes an IDLE session — disposing mid-run would kill it.
@@ -620,6 +679,9 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
         const oldFile = live.get(prev.deckKey)?.sessionManager.getSessionFile()
         await disposeDeck(prev.deckKey)
         store.rebindChatToFile('default', prev.deckKey, args.filePath)
+        // the scratch chat now lives under the file — the next untitled deck
+        // must start a fresh unsaved chat, not re-adopt the moved (empty) one
+        if (store.getActiveUnsavedChatId() === prev.deckKey) store.setActiveUnsavedChatId(null)
         if (oldFile) {
           const moved = join(
             store.agentWorkDir(projectId, chatId),
@@ -634,7 +696,12 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
         // Session survives a reload (the next bind re-attaches); just drop the routing entry
         e.sender.once('destroyed', () => tabDeck.delete(wcId))
       }
-      return { ok: true, deckKey: chatId }
+      // Unsaved adoption: offer the chat's latest session so the panel can
+      // replay it — the conversation visibly survives app relaunches.
+      const continueSessionFile = args.filePath
+        ? undefined
+        : latestSessionFile(join(store.agentWorkDir(projectId, chatId), 'sessions'))
+      return { ok: true, deckKey: chatId, ...(continueSessionFile ? { continueSessionFile } : {}) }
     } catch (err) {
       console.error('[agent] bind failed:', err)
       return { ok: false, error: err instanceof Error ? err.message : String(err) }

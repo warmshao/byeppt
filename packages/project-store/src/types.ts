@@ -76,6 +76,14 @@ export interface ProjectIndex {
    * Old data without this map falls back to sha256(path) derivation.
    */
   chatIdByPath?: Record<string, string>
+  /**
+   * chatId of the most recently active unsaved (untitled) deck. Untitled decks
+   * have no file path to derive a stable identity from — without this pointer
+   * each app launch mints a fresh temp chatId and orphans the previous run's
+   * sessions (the history popover comes up empty after a restart). Cleared
+   * when the unsaved chat is folded into a saved file's chat.
+   */
+  activeUnsavedChatId?: string
 }
 
 export interface ChatMeta {

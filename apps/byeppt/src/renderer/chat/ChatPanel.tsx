@@ -671,7 +671,11 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
    * Retried before every agent action: a failed bind (stale dev preload,
    * main-side error) must not wedge the panel into permanent 'unbound'.
    */
-  const bindDeck = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+  const bindDeck = useCallback(async (): Promise<{
+    ok: boolean
+    error?: string
+    continueSessionFile?: string
+  }> => {
     if (deckKeyRef.current) return { ok: true }
     if (typeof window.agentApi.bind !== 'function') {
       // stale preload in dev — the running window needs a full restart
@@ -684,7 +688,7 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
       })
       if (res.ok && res.deckKey) {
         deckKeyRef.current = res.deckKey
-        return { ok: true }
+        return { ok: true, ...(res.continueSessionFile ? { continueSessionFile: res.continueSessionFile } : {}) }
       }
       console.warn('[chat] agent bind failed:', res.error)
       return { ok: false, error: res.error ?? 'bind-failed' }
@@ -701,10 +705,20 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
   // kill the run. The streaming dep re-fires this effect when the run ends,
   // with the latest filePath.
   const streaming = status?.streaming ?? false
+  /** Once per mount: replay the adopted unsaved chat's latest session (app restart continuity) */
+  const autoResumeRef = useRef(false)
   useEffect(() => {
     if (streaming) return
     deckKeyRef.current = null
-    void bindDeck()
+    void bindDeck().then((res) => {
+      if (!res.ok || autoResumeRef.current || !res.continueSessionFile) return
+      autoResumeRef.current = true
+      void window.agentApi.resumeSession(res.continueSessionFile).then((r) => {
+        if (r.ok && Array.isArray(r.messages) && r.messages.length > 0) {
+          setRows(messagesToRows(r.messages))
+        }
+      })
+    })
   }, [bindDeck, streaming])
 
   useEffect(() => {

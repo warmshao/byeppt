@@ -259,6 +259,23 @@ export class ProjectStore {
   }
 
   /**
+   * The chatId of the most recently active unsaved (untitled) deck — see
+   * ProjectIndex.activeUnsavedChatId. Null when no unsaved chat is active
+   * (never existed, or it was folded into a saved file's chat).
+   */
+  getActiveUnsavedChatId(): string | null {
+    return this.readIndex().activeUnsavedChatId ?? null
+  }
+
+  /** Sets (or clears, with null) the active unsaved chat pointer. */
+  setActiveUnsavedChatId(chatId: string | null): void {
+    const index = this.readIndex()
+    if (chatId === null) delete index.activeUnsavedChatId
+    else index.activeUnsavedChatId = chatId
+    this.writeIndex(index)
+  }
+
+  /**
    * Called after a file is renamed/moved on disk: the keys in fileMap,
    * project.files and chatIdByPath are updated accordingly, while the chatId
    * stays the same (history needs no relocation).
