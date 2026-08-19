@@ -22,7 +22,13 @@ This demo was generated with DeepSeek V4 Flash: 12 slides in 15 minutes, costing
 
 Download the installer for your platform from [Releases](https://github.com/warmshao/byeppt/releases).
 
-**For macOS users**: the app is currently unsigned. On first launch, go to **System Settings → Privacy & Security** and click **Open Anyway** to continue.
+**For macOS users**: the app is currently unsigned. On first launch macOS will say "ByePPT is damaged and can't be opened" — this is just Gatekeeper blocking unsigned apps; the file itself is fine. After dragging the app into Applications, run this once in Terminal:
+
+```bash
+xattr -cr /Applications/ByePPT.app
+```
+
+Then the app opens normally.
 
 ## Acknowledgements
 

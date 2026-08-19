@@ -22,7 +22,13 @@
 
 前往 [Releases](https://github.com/warmshao/byeppt/releases) 下载对应平台的安装包。
 
-**macOS 用户注意**：目前安装包尚未签名。首次打开时，请在 **系统设置 → 隐私与安全性** 中点击 **仍要打开**，按提示完成安装。
+**macOS 用户注意**：目前安装包尚未签名。首次打开时 macOS 会提示"ByePPT 已损坏，无法打开"——这是系统对未签名应用的拦截，文件本身没有问题。把应用拖入「应用程序」后，在终端执行一次：
+
+```bash
+xattr -cr /Applications/ByePPT.app
+```
+
+之后即可正常打开。
 
 ## 致谢
 
