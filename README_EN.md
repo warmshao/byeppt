@@ -6,7 +6,7 @@
 
 **Say goodbye to handcrafted slides** &middot; [中文](./README.md)
 
-<video src="https://github.com/user-attachments/assets/2f9ca037-6474-4307-ac80-7d26f451d965" title="" aria-label="ByePPT demo" controls muted playsinline></video>
+<video src="https://github.com/user-attachments/assets/78003634-32e9-4199-a712-ee35f8f71354" title="" aria-label="ByePPT demo" controls muted playsinline></video>
 
 This demo was generated with DeepSeek V4 Flash: 12 slides in 15 minutes, costing just **$0.14**, with a 98% cache hit rate.
 

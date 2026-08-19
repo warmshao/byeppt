@@ -6,7 +6,7 @@
 
 **跟手搓 PPT 说拜拜** &middot; [English](./README_EN.md)
 
-<video src="https://github.com/user-attachments/assets/2f9ca037-6474-4307-ac80-7d26f451d965" title="" aria-label="ByePPT demo" controls muted playsinline></video>
+<video src="https://github.com/user-attachments/assets/78003634-32e9-4199-a712-ee35f8f71354" title="" aria-label="ByePPT demo" controls muted playsinline></video>
 
 这个 demo 使用 DeepSeek V4 Flash 制作，共十二页，耗时 15 分钟，花费 **1 元**，缓存命中率 98%。
 
