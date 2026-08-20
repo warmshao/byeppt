@@ -127,6 +127,18 @@ system mode).
   (`env -u ELECTRON_RUN_AS_NODE`) before launching electron or the app exits
   with `ipcMain` undefined.
 
+## Release process (follow without being asked when the user says 发版/发新包/release)
+
+1. Bump the version (patch by default) in all four files: root
+   `package.json`, `apps/byeppt/package.json`, `apps/shell/package.json`,
+   and every matching entry in `package-lock.json`.
+2. Commit as `chore: prepare vX.Y.Z release`, tag `vX.Y.Z`, push main and
+   the tag (`git push && git push origin vX.Y.Z`).
+3. The tag push triggers `.github/workflows/release.yml`, which builds the
+   four platform artifacts and creates the GitHub Release. Release notes are
+   automatic (`generate_release_notes: true` — GitHub lists commits/PRs
+   since the previous tag); never hand-write or ask about the changelog.
+
 ## Licensing
 
 AGPL-3.0-only (see LICENSE/NOTICE; portions derived from the Apache-2.0
