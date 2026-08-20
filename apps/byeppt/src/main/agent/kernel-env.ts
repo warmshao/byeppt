@@ -54,7 +54,9 @@ export function userProgressMessage(raw: string): string | null {
   return msg
 }
 
-const UV_DIR = join(homedir(), '.local', 'bin')
+/** App-private tool/runtime dirs. Never replace a user-installed uv or Python. */
+const UV_DIR = join(app.getPath('userData'), 'agent', 'bin')
+const UV_PYTHON_DIR = join(app.getPath('userData'), 'agent', 'uv-python')
 const UV_EXE = process.platform === 'win32' ? 'uv.exe' : 'uv'
 const UV_PATH = join(UV_DIR, UV_EXE)
 
@@ -72,6 +74,11 @@ function agentDir(): string {
  * is the SDK's official override for exactly this. Idempotent.
  */
 export function ensureVsurfPackageDirEnv(): void {
+  // Isolate the packaged app's kernel venv from a possible standalone vsurf
+  // installation. An explicit user override still wins.
+  if (app.isPackaged && !process.env.VSURF_KERNEL_VENV) {
+    process.env.VSURF_KERNEL_VENV = join(agentDir(), 'kernel-venv')
+  }
   if (process.env.VSURF_PACKAGE_DIR) return
   if (!app.isPackaged || !process.resourcesPath) return
   const dir = join(
@@ -181,6 +188,29 @@ function uvPythonDirName(pbsPython: string): string {
 }
 
 /**
+ * Remove Gatekeeper's quarantine bit from app-owned executables.
+ *
+ * The distributed macOS app is currently unsigned. Clearing the bundle alone
+ * does not reliably cover executables copied/extracted into uv's user-level
+ * managed directories; without this, macOS can block `uv` or `python3.11`
+ * during first-run provisioning and make the "one-time" setup retry forever.
+ * Failure is non-fatal: xattr is a best-effort workaround until the app is
+ * signed/notarized.
+ */
+async function clearMacQuarantine(path: string): Promise<void> {
+  if (process.platform !== 'darwin') return
+  try {
+    await runChecked('/usr/bin/xattr', ['-r', '-d', 'com.apple.quarantine', path])
+  } catch (err) {
+    console.warn(
+      '[kernel-env] failed to clear macOS quarantine for',
+      path,
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Extract the bundled python-build-standalone tarball into uv's managed python
  * dir, so the bootstrap's `uv python install 3.11` becomes a no-op offline.
  * Idempotent: an existing dir that `uv python find 3.11` resolves is kept.
@@ -196,6 +226,9 @@ async function seedBundledPython(runtimeDir: string, manifest: KernelRuntimeMani
       return false
     }
   }
+  // A prior attempt may have extracted Python but been blocked by Gatekeeper
+  // before marking provisioning complete. Clear it before uv probes the binary.
+  if (existsSync(target)) await clearMacQuarantine(target)
   if (existsSync(target) && (await found())) return
   const staging = join(uvDir, 'python')
   rmSync(staging, { recursive: true, force: true })
@@ -204,6 +237,7 @@ async function seedBundledPython(runtimeDir: string, manifest: KernelRuntimeMani
   await runChecked('tar', ['-xzf', join(runtimeDir, 'python.tar.gz'), '-C', uvDir])
   rmSync(target, { recursive: true, force: true })
   renameSync(staging, target)
+  await clearMacQuarantine(target)
   if (!(await found())) {
     throw new Error(`bundled python extracted to ${target} but uv python find 3.11 does not see it`)
   }
@@ -212,10 +246,9 @@ async function seedBundledPython(runtimeDir: string, manifest: KernelRuntimeMani
 /**
  * PATH for the offline bootstrap with every directory containing a `uv`
  * binary removed — except UV_DIR (which we just populated with the pinned
- * bundled build, prepended). vsurf's ensureUv checks PATH before
- * ~/.local/bin/uv, so without this a user who happens to have uv installed
- * (e.g. Homebrew) would silently bootstrap with their own uv build, breaking
- * the strictly-bundled-only guarantee.
+ * bundled build, prepended). This keeps provisioning on the bundled build even
+ * when the user has uv installed elsewhere (e.g. Homebrew), without replacing
+ * their executable.
  */
 function bundledOnlyPath(): string {
   const exe = process.platform === 'win32' ? 'uv.exe' : 'uv'
@@ -250,6 +283,7 @@ async function provisionOfflineRuntime(
     const restore = patchEnv({
       UV_OFFLINE: '1',
       UV_FIND_LINKS: join(runtimeDir, 'wheelhouse'),
+      UV_PYTHON_INSTALL_DIR: UV_PYTHON_DIR,
       UV_PYTHON_PREFERENCE: 'only-managed',
       PATH: bundledOnlyPath(),
     })
@@ -262,6 +296,7 @@ async function provisionOfflineRuntime(
       } catch {
         // Windows: chmod is a no-op
       }
+      await clearMacQuarantine(UV_PATH)
       process.env.VSURF_INSTALL_UV = '1'
       // 2. managed python
       onProgress?.('正在解压内置 Python 运行环境(一次性)…')
@@ -283,7 +318,9 @@ export function resolveKernelPython(): string {
   if (process.env.VSURF_KERNEL_PYTHON) return resolve(expandHome(process.env.VSURF_KERNEL_PYTHON))
   const venv = process.env.VSURF_KERNEL_VENV
     ? resolve(expandHome(process.env.VSURF_KERNEL_VENV))
-    : join(homedir(), '.vsurf', 'agent', 'kernel-venv')
+    : app.isPackaged
+      ? join(agentDir(), 'kernel-venv')
+      : join(homedir(), '.vsurf', 'agent', 'kernel-venv')
   return process.platform === 'win32' ? join(venv, 'Scripts', 'python.exe') : join(venv, 'bin', 'python')
 }
 
@@ -463,6 +500,9 @@ function kernelSkillsMarkerMatches(fingerprint: string): boolean {
 export async function provisionKernelSkills(
   onProgress?: KernelEnvProgress,
 ): Promise<{ ok: boolean; error?: string }> {
+  // Direct callers (image generation tests, package updates) must land in the
+  // same isolated packaged venv as prepareKernelEnvironment.
+  if (!process.env.VSURF_KERNEL_PYTHON) ensureVsurfPackageDirEnv()
   const pythonSkills = await detectPythonSkills()
   if (pythonSkills.length === 0) return { ok: true }
   // Skip only when the dependency fingerprint matches AND the packages import:

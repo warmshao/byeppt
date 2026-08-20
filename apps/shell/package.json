@@ -13,11 +13,17 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "start": "electron-vite build && electron .",
-    "dist:mac": "electron-vite build && electron-builder --mac --publish never",
-    "dist:mac:arm64": "electron-vite build && electron-builder --mac --arm64 --publish never",
-    "dist:mac:x64": "electron-vite build && electron-builder --mac --x64 --publish never",
-    "dist:win": "electron-vite build && electron-builder --win --publish never",
-    "dist:linux": "electron-vite build && electron-builder --linux --publish never"
+    "dist:mac": "npm run clean:release && npm run build:mac:all",
+    "dist:mac:arm64": "npm run clean:release && npm run build:mac:arm64",
+    "dist:mac:x64": "npm run clean:release && npm run build:mac:x64",
+    "dist:win": "npm run clean:release && npm run build:win",
+    "dist:linux": "npm run clean:release && npm run build:linux",
+    "clean:release": "node ../../tools/clean-release.mjs",
+    "build:mac:arm64": "electron-vite build && electron-builder --mac --arm64 --publish never",
+    "build:mac:x64": "electron-vite build && electron-builder --mac --x64 --publish never",
+    "build:win": "electron-vite build && electron-builder --win --publish never",
+    "build:linux": "electron-vite build && electron-builder --linux --publish never",
+    "build:mac:all": "electron-vite build && electron-builder --mac --arm64 --x64 --publish never"
   },
   "devDependencies": {
     "@byeppt/app": "*",
