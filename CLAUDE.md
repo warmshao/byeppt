@@ -136,8 +136,10 @@ system mode).
    the tag (`git push && git push origin vX.Y.Z`).
 3. The tag push triggers `.github/workflows/release.yml`, which builds the
    four platform artifacts and creates the GitHub Release. Release notes are
-   automatic (`generate_release_notes: true` — GitHub lists commits/PRs
-   since the previous tag); never hand-write or ask about the changelog.
+   automatic: the workflow builds "What's Changed" from the commit messages
+   since the previous tag (GitHub's own generator only sees PRs, and this
+   repo commits straight to main). So write descriptive commit subjects —
+   they ARE the changelog; never hand-write or ask about it.
 
 ## Licensing
 
