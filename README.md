@@ -25,10 +25,10 @@
 **macOS 用户注意**：目前安装包尚未签名。首次打开时 macOS 会提示"ByePPT 已损坏，无法打开"——这是系统对未签名应用的拦截，文件本身没有问题。把应用拖入「应用程序」后，在终端执行一次：
 
 ```bash
-xattr -cr /Applications/ByePPT.app
+xattr -c /Applications/ByePPT.app
 ```
 
-之后即可正常打开。
+如果你的 macOS 版本支持 `-r`，也可以用 `xattr -cr /Applications/ByePPT.app` 递归清理整个 `.app` 包；旧版 `xattr` 不支持 `-r`，使用上面的 `-c` 即可。之后即可正常打开。
 
 ## 致谢
 
