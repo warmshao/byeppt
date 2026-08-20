@@ -47,8 +47,8 @@
   },
   "author": "byeppt",
   "dependencies": {
-    "@warmshao/vsurf": "^0.7.4",
+    "@warmshao/vsurf": "^0.7.6",
     "electron-updater": "^6.8.9",
-    "vsurf-ai": "^0.7.4"
+    "vsurf-ai": "^0.7.6"
   }
 }

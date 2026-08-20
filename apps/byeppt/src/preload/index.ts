@@ -323,7 +323,8 @@ contextBridge.exposeInMainWorld('slidesApi', api)
 
 const agentApi: AgentApi = {
   status: () => ipcRenderer.invoke('agent:status'),
-  prompt: (text: string) => ipcRenderer.invoke('agent:prompt', text),
+  prompt: (text: string, images?: Array<{ data: string; mimeType: string }>) =>
+    ipcRenderer.invoke('agent:prompt', text, images),
   abort: () => ipcRenderer.invoke('agent:abort'),
   setModel: (sel: { provider: string; id: string }) => ipcRenderer.invoke('agent:set-model', sel),
   newSession: () => ipcRenderer.invoke('agent:new-session'),

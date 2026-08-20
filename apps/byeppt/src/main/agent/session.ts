@@ -725,35 +725,54 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
 
   ipcMain.handle('agent:status', (e) => getStatus(tabDeck.get(e.sender.id)?.deckKey))
 
-  ipcMain.handle('agent:prompt', async (e, text: string) => {
-    const deck = tabDeck.get(e.sender.id)
-    if (!deck) return { ok: false, error: 'unbound' }
-    const s = await ensureSession(deck)
-    if (!s) return { ok: false, error: sdkError ?? 'no-model' }
-    // The kernel may spawn lazily on this prompt — keep the batch image
-    // path's .env in sync with Settings (cheap no-op when unchanged).
-    await syncImageGenEnvFileTo(deck.workdir)
-    const wasIdle = !s.isStreaming
-    const deckKey = deck.deckKey
-    // Fire and settle in the background; the event stream carries progress.
-    void s
-      .prompt(String(text))
-      .catch(async (err) => {
-        sendToDeck(deckKey, 'agent:event', {
-          type: 'byeppt:error',
-          deckKey,
-          message: err instanceof Error ? err.message : String(err),
+  ipcMain.handle(
+    'agent:prompt',
+    async (e, text: string, images?: Array<{ data: string; mimeType: string }>) => {
+      const deck = tabDeck.get(e.sender.id)
+      if (!deck) return { ok: false, error: 'unbound' }
+      const s = await ensureSession(deck)
+      if (!s) return { ok: false, error: sdkError ?? 'no-model' }
+      // The kernel may spawn lazily on this prompt — keep the batch image
+      // path's .env in sync with Settings (cheap no-op when unchanged).
+      await syncImageGenEnvFileTo(deck.workdir)
+      const wasIdle = !s.isStreaming
+      const deckKey = deck.deckKey
+      // Composer-attached pictures go in as real vision content so the model
+      // sees them directly — no attach_image kernel round-trip (a weak model
+      // mis-calls it, e.g. attach_image.attach(...), and errors out). Only
+      // when the selected model declares image input; otherwise the path
+      // trailer in the text remains the only reference.
+      const vision =
+        Array.isArray(images) && s.model?.input?.includes('image')
+          ? images
+              .filter(
+                (i) =>
+                  typeof i?.data === 'string' &&
+                  typeof i?.mimeType === 'string' &&
+                  i.mimeType.startsWith('image/'),
+              )
+              .map((i) => ({ type: 'image' as const, data: i.data, mimeType: i.mimeType }))
+          : []
+      // Fire and settle in the background; the event stream carries progress.
+      void s
+        .prompt(String(text), vision.length ? { images: vision } : undefined)
+        .catch(async (err) => {
+          sendToDeck(deckKey, 'agent:event', {
+            type: 'byeppt:error',
+            deckKey,
+            message: err instanceof Error ? err.message : String(err),
+          })
         })
-      })
-      .finally(async () => {
-        // isStreaming only flips in finishRun(), AFTER agent_end listeners
-        // settle — the agent_end status push is still stale-true; the prompt
-        // promise settling is the only reliable "run really over" signal.
-        await pushStatus(deckKey)
-      })
-    if (wasIdle) await pushStatus(deckKey)
-    return { ok: true }
-  })
+        .finally(async () => {
+          // isStreaming only flips in finishRun(), AFTER agent_end listeners
+          // settle — the agent_end status push is still stale-true; the prompt
+          // promise settling is the only reliable "run really over" signal.
+          await pushStatus(deckKey)
+        })
+      if (wasIdle) await pushStatus(deckKey)
+      return { ok: true }
+    },
+  )
 
   ipcMain.handle('agent:abort', async (e) => {
     const deck = tabDeck.get(e.sender.id)

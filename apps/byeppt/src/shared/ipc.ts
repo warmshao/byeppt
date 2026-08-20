@@ -65,7 +65,16 @@ export interface AgentAttachment {
 
 export interface AgentApi {
   status: () => Promise<AgentStatus>
-  prompt: (text: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Send a user prompt. `images` are composer-attached pictures sent along as
+   * real vision content (base64) — the main process forwards them only when
+   * the selected model declares image input; otherwise they are dropped and
+   * the attachment-path trailer in `text` remains the only reference.
+   */
+  prompt: (
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ) => Promise<{ ok: boolean; error?: string }>
   abort: () => Promise<{ ok: boolean }>
   setModel: (sel: { provider: string; id: string }) => Promise<{ ok: boolean; error?: string }>
   newSession: () => Promise<{ ok: boolean; error?: string }>

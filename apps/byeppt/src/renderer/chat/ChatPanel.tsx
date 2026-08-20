@@ -899,6 +899,17 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
           setRows((prev) => [...prev, { id, kind: 'notice', text: t('chatCompacting') }])
           break
         }
+        case 'compaction_end': {
+          // Surface the outcome — otherwise a failing compaction reads as an
+          // endless "compacting…" loop with the real error swallowed
+          const id = nextId()
+          if (evt.errorMessage) {
+            setRows((prev) => [...prev, { id, kind: 'error', text: String(evt.errorMessage) }])
+          } else if (!evt.aborted) {
+            setRows((prev) => [...prev, { id, kind: 'notice', text: t('chatCompacted') }])
+          }
+          break
+        }
         case 'auto_retry_start': {
           const id = nextId()
           setRows((prev) => [
@@ -1017,7 +1028,15 @@ export function ChatPanel({ filePath }: { filePath: string | null }) {
       ...prev,
       { id: nextId(), kind: 'user', text, ...(echo.length ? { attachments: echo } : {}) },
     ])
-    const res = await window.agentApi.prompt(promptText)
+    const res = await window.agentApi.prompt(
+      promptText,
+      // attached pictures also go in as real vision content (main drops them
+      // when the selected model declares no image input) — the model sees the
+      // pixels directly instead of having to discover the attach_image skill
+      files
+        .filter((f) => IMAGE_RE.test(f.mime))
+        .map((f) => ({ data: f.base64, mimeType: f.mime })),
+    )
     if (!res.ok) {
       skipUserEchoRef.current = false
       setRows((prev) => [
