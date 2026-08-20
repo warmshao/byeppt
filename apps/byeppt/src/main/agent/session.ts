@@ -349,7 +349,16 @@ async function syncOpenAICompatible(stores: {
     baseUrl: cfg?.baseUrl || OPENAI_COMPATIBLE_DEFAULT_URL,
     api: 'openai-completions',
     apiKey: key,
-    models: [{ id: cfg?.model || 'gpt-4o-mini', name: cfg?.model || 'gpt-4o-mini' }],
+    models: [
+      {
+        id: cfg?.model || 'gpt-4o-mini',
+        name: cfg?.model || 'gpt-4o-mini',
+        // vsurf gates vision on model.input (defaults to ['text'] when unset),
+        // and byeppt only sends images when the user attaches one — declare
+        // image support so capable endpoints (gpt-4o, qwen-vl, …) get pixels.
+        input: ['text', 'image'],
+      },
+    ],
   })
 }
 
