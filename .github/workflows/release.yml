@@ -158,6 +158,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      # full history so we can diff against the previous tag for the notes
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # GitHub's generate_release_notes only lists merged PRs; this repo
+      # pushes commits straight to main, so build the "What's Changed" list
+      # from git log ourselves (skipping the version-bump commit).
+      - name: Generate release notes
+        run: |
+          PREV=$(git tag --sort=-creatordate | grep -vx "${GITHUB_REF_NAME}" | head -1)
+          {
+            echo "## What's Changed"
+            echo
+            git log --pretty=format:'- %s (%h)' --no-merges "${PREV}..HEAD" \
+              | grep -v '^- chore: prepare ' || true
+            echo
+            echo
+            echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${GITHUB_REF_NAME}"
+          } > release-notes.md
       - uses: actions/download-artifact@v8
         with:
           pattern: byeppt-*
@@ -166,4 +185,4 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: release-notes.md
