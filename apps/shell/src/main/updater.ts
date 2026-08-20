@@ -4,9 +4,9 @@
  * Windows (nsis) / Linux (AppImage) use electron-updater against the GitHub
  * Releases feed (see the `publish` block in electron-builder.cjs — unsigned
  * builds auto-update fine on those platforms). macOS builds are unsigned and
- * Squirrel.Mac refuses to update them, so the mac path only *checks* (GitHub
- * releases API via global fetch — the net-policy undici dispatcher covers
- * proxy users) and points the user at the release page.
+ * Squirrel.Mac refuses to update them, so the mac path only *checks* (the
+ * /releases/latest HTML redirect via global fetch — the net-policy undici
+ * dispatcher covers proxy users) and points the user at the release page.
  *
  * electron-updater is lazy-require()d and only ever touched on win/linux, so
  * the unsigned mac build never loads it.
@@ -16,7 +16,6 @@ import type { BrowserWindow } from 'electron'
 import { HOME_CHANNELS } from '../shared/home-api'
 import type { UpdateStatus } from '../shared/home-api'
 
-const RELEASES_LATEST_API = 'https://api.github.com/repos/warmshao/byeppt/releases/latest'
 const RELEASES_PAGE = 'https://github.com/warmshao/byeppt/releases/latest'
 
 /** compare '0.1.2' vs 'v0.1.3': -1/0/1; leading v stripped, pre-release suffix ignored */
@@ -89,19 +88,27 @@ export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void 
     return autoUpdater
   }
 
-  /** macOS check: GitHub API via global fetch (net-policy undici proxy applies). */
+  /**
+   * macOS check: resolve /releases/latest's 302 to /releases/tag/vX.Y.Z and
+   * read the version from the final URL. Deliberately NOT the api.github.com
+   * releases endpoint: unauthenticated API calls are rate-limited to 60/hr
+   * per IP, and users behind shared proxy exits blow through that in
+   * minutes — the HTML redirect has no such limit. (net-policy's undici
+   * dispatcher still covers proxy users.)
+   */
   async function checkViaGitHub(): Promise<UpdateStatus> {
     setStatus({ state: 'checking' })
     try {
-      const res = await fetch(RELEASES_LATEST_API, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'byeppt-updater' },
+      const res = await fetch(RELEASES_PAGE, {
+        headers: { 'User-Agent': 'byeppt-updater' },
         signal: AbortSignal.timeout(10_000),
       })
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`)
-      const data = (await res.json()) as { tag_name?: string; html_url?: string }
-      const latest = (data.tag_name ?? '').replace(/^v/i, '')
-      if (!latest) throw new Error('no tag_name in latest release')
-      const releaseUrl = typeof data.html_url === 'string' ? data.html_url : RELEASES_PAGE
+      if (!res.ok) throw new Error(`GitHub ${res.status}`)
+      const m = /\/releases\/tag\/([^/?#]+)/.exec(res.url)
+      if (!m) throw new Error('could not resolve latest release tag')
+      const latest = decodeURIComponent(m[1]).replace(/^v/i, '')
+      if (!latest) throw new Error('empty tag in latest release URL')
+      const releaseUrl = res.url
       return compareVersions(latest, app.getVersion()) > 0
         ? setStatus({ state: 'available', version: latest, releaseUrl })
         : setStatus({ state: 'up-to-date', version: latest, releaseUrl })
