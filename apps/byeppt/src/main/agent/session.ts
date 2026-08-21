@@ -22,7 +22,7 @@
  */
 import { app, ipcMain, shell, webContents } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { readAppSettings, updateAppSettings } from '../app-settings'
 import type { AgentProviderConfig } from '../app-settings'
 import { syncImageGenEnvFile, syncImageGenEnvFileTo } from '../imagegen/env'
@@ -359,6 +359,104 @@ async function syncOpenAICompatible(stores: {
         input: ['text', 'image'],
       },
     ],
+  })
+}
+
+/** Read-modify-write one provider's entry in <userData>/agent/models.json (the
+ *  file the registry actually reads back). `mutate` returns true when it
+ *  changed something; an entry left empty is removed entirely. Refreshes the
+ *  registry on any disk change; never throws into the caller's flow — an
+ *  unparseable/unwritable file is warned about and skipped (same policy as
+ *  syncOpenAICompatible's strip path). */
+function mutateModelsJsonEntry(
+  reg: ModelRegistry,
+  provider: string,
+  mutate: (entry: Record<string, unknown>) => boolean,
+): void {
+  const modelsJson = reg.getModelsJsonPath()
+  if (!modelsJson) return
+  let parsed: { providers?: Record<string, Record<string, unknown>> } = {}
+  if (existsSync(modelsJson)) {
+    try {
+      parsed = JSON.parse(readFileSync(modelsJson, 'utf8'))
+    } catch (err) {
+      console.warn('[agent] failed to parse models.json:', err)
+      return
+    }
+  }
+  parsed.providers ??= {}
+  const entry = parsed.providers[provider] ?? {}
+  if (!mutate(entry)) return
+  if (Object.keys(entry).length === 0) delete parsed.providers[provider]
+  else parsed.providers[provider] = entry
+  try {
+    mkdirSync(dirname(modelsJson), { recursive: true })
+    writeFileSync(modelsJson, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 })
+    reg.refresh()
+  } catch (err) {
+    console.warn('[agent] failed to write models.json:', err)
+  }
+}
+
+/** Materialize (or remove) the app-managed custom-model entry for a built-in
+ *  provider in models.json, so reg.find()/getAvailable() see user-typed model
+ *  ids (enable/test would otherwise reject them with 'unknown-model'). Catalog
+ *  ids never touch the file; hand-authored entries and base-URL overrides are
+ *  preserved. prev/next are classified against the vsurf-ai catalog:
+ *  custom→custom swaps, custom→catalog/clear removes, catalog→custom adds. */
+async function syncProviderCustomModel(
+  reg: ModelRegistry,
+  provider: string,
+  prevModel: string | undefined,
+  nextModel: string | undefined,
+): Promise<void> {
+  if (prevModel === nextModel) return // idempotent re-save
+  let catalogIds: Set<string>
+  try {
+    const ai = await import('vsurf-ai')
+    // getModels is generically typed over KnownProvider; our ids are plain strings
+    const getIds = ai.getModels as unknown as (p: string) => Array<{ id: string }>
+    catalogIds = new Set(getIds(provider).map((m) => m.id))
+  } catch (err) {
+    console.warn('[agent] cannot enumerate catalog models for', provider, err)
+    return
+  }
+  const prevCustom = !!prevModel && !catalogIds.has(prevModel)
+  const nextCustom = !!nextModel && !catalogIds.has(nextModel)
+  // The provider's CURRENTLY ACTIVE custom model must survive the swap: evicting
+  // it at save time (before the ping verdict) would leave the running agent on a
+  // model the registry no longer knows — 使用中 badge gone, chat broken. Protect
+  // it alongside the incoming id; a later switch that supersedes it cleans up.
+  const active = readAppSettings().agentModel
+  const activeCustom =
+    active?.provider === provider && active.id && !catalogIds.has(active.id)
+      ? active.id
+      : undefined
+  const removals = new Set<string>(prevCustom && prevModel ? [prevModel] : [])
+  if (nextModel) removals.delete(nextModel)
+  if (activeCustom) removals.delete(activeCustom)
+  if (!nextCustom && removals.size === 0) return // catalog↔catalog / catalog→clear
+  mutateModelsJsonEntry(reg, provider, (entry) => {
+    const rest = Array.isArray(entry.models)
+      ? (entry.models as Array<Record<string, unknown>>).filter(
+          (m) => !removals.has(m.id as string),
+        )
+      : []
+    if (nextCustom && !rest.some((m) => m.id === nextModel)) {
+      rest.push({
+        id: nextModel,
+        name: nextModel,
+        // vsurf gates vision on model.input (defaults to ['text'] when unset),
+        // and byeppt only sends images when the user attaches one — declare
+        // image support so capable endpoints get pixels.
+        input: ['text', 'image'],
+      })
+    }
+    const before = Array.isArray(entry.models) ? entry.models : []
+    if (JSON.stringify(before) === JSON.stringify(rest)) return false
+    if (rest.length === 0) delete entry.models
+    else entry.models = rest
+    return true
   })
 }
 
@@ -893,33 +991,26 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
   }
 
   /** Mirror a base-URL override into the vsurf models.json (what the registry
-   *  actually reads), or remove the override when cleared. */
+   *  actually reads), or remove the override when cleared. Only touches the
+   *  baseUrl key — co-resident custom models and other entry keys survive. */
   const applyBaseUrlOverride = (
     reg: ModelRegistry,
     provider: string,
     baseUrl: string | undefined,
   ): void => {
-    const modelsJson = reg.getModelsJsonPath()
-    if (!modelsJson) return
     if (baseUrl) {
-      reg.upsertCustomProvider(provider, { baseUrl })
+      mutateModelsJsonEntry(reg, provider, (entry) => {
+        if (entry.baseUrl === baseUrl) return false
+        entry.baseUrl = baseUrl
+        return true
+      })
       return
     }
-    // clearing: upsertCustomProvider can't express removal — edit the file
-    if (!existsSync(modelsJson)) return
-    try {
-      const parsed = JSON.parse(readFileSync(modelsJson, 'utf8')) as {
-        providers?: Record<string, Record<string, unknown>>
-      }
-      const entry = parsed.providers?.[provider]
-      if (!entry) return
+    mutateModelsJsonEntry(reg, provider, (entry) => {
+      if (!('baseUrl' in entry)) return false
       delete entry.baseUrl
-      if (Object.keys(entry).length === 0) delete parsed.providers![provider]
-      writeFileSync(modelsJson, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 })
-      reg.refresh()
-    } catch (err) {
-      console.warn('[agent] failed to clear base URL override:', err)
-    }
+      return true
+    })
   }
 
   ipcMain.handle('agent:list-providers', async () => {
@@ -1006,7 +1097,11 @@ export function registerAgentIpc(storeAccessor: () => ProjectStore): void {
       patchProviderConfig(provider, patch)
       try {
         if (provider === OPENAI_COMPATIBLE_PROVIDER) await syncOpenAICompatible(stores)
-        else if (touchesUrl) applyBaseUrlOverride(stores.modelRegistry, provider, patch.baseUrl)
+        else {
+          // materialize a user-typed non-catalog model so enable/test can find it
+          await syncProviderCustomModel(stores.modelRegistry, provider, prev?.model, patch.model)
+          if (touchesUrl) applyBaseUrlOverride(stores.modelRegistry, provider, patch.baseUrl)
+        }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }

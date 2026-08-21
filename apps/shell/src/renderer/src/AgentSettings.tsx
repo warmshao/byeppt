@@ -6,7 +6,8 @@
  * Providers pane: searchable list of every provider in the agent SDK's model
  * registry (pulled live, brand icons resolved from the provider id). Each row
  * carries 启用 / 编辑 / 测试: 编辑 opens a dialog (API key — or browser OAuth
- * login for subscription providers — plus model; Base URL only for
+ * login for subscription providers — plus a free-text model field with catalog
+ * suggestions on every provider; Base URL only for
  * openai-compatible). Saving or logging in auto-tests connectivity; only a
  * passing test turns 启用 green, and the agent always runs on exactly one
  * provider (使用中 marks it).
@@ -72,8 +73,6 @@ function ProviderEditDialog({ provider, onClose, onChanged }: ProviderEditDialog
       .then((rows) => {
         if (cancelled) return
         setModels(rows)
-        // keep the saved pick when it still exists in the catalog
-        if (provider.model && !rows.some((m) => m.id === provider.model)) setModelId('')
       })
     return () => {
       cancelled = true
@@ -283,22 +282,28 @@ function ProviderEditDialog({ provider, onClose, onChanged }: ProviderEditDialog
                 placeholder={t('setModelPlaceholder')}
                 onChange={(e) => setModelId(e.target.value)}
               />
-            ) : models === null ? (
-              <div className="set-field-value">…</div>
             ) : (
-              <select
-                id="set-config-model"
-                className="set-config-select"
-                value={modelId}
-                onChange={(e) => setModelId(e.target.value)}
-              >
-                <option value="">—</option>
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
+              <>
+                {/* preset suggestions + free-text entry (custom ids the catalog
+                    doesn't know yet are materialized main-side on save) */}
+                <input
+                  id="set-config-model"
+                  className="set-input"
+                  value={modelId}
+                  placeholder={t('setModelPlaceholder')}
+                  list={`llm-models-${provider.id}`}
+                  onChange={(e) => setModelId(e.target.value)}
+                />
+                {models !== null && (
+                  <datalist id={`llm-models-${provider.id}`}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </datalist>
+                )}
+              </>
             )}
           </>
         )}
@@ -369,6 +374,7 @@ export function ProvidersPane() {
       })
       // a passing test flips the verified flag — 启用 turns green
       await refresh()
+      return res.ok
     },
     [refresh],
   )
@@ -406,12 +412,6 @@ export function ProvidersPane() {
               <span>{p.name}</span>
               {p.hasKey && <span className="set-key-badge">{t('setKeyConfigured')}</span>}
             </div>
-            {failures[p.id] !== undefined && testing !== p.id && (
-              <div className="set-field-value set-err set-provider-fail">
-                {t('setTestFailTip')}
-                {failures[p.id] ? `: ${failures[p.id]}` : ''}
-              </div>
-            )}
           </div>
           <span className="set-provider-actions">
             {p.active ? (
@@ -459,9 +459,32 @@ export function ProvidersPane() {
           onClose={() => setEditing(null)}
           onChanged={(retest) => {
             const id = editing.id
+            // switching the model of the provider currently in use should take
+            // effect by itself: save → auto-test → auto-enable on pass, with no
+            // second 启用 click (an unused provider stays put)
+            const wasActive = editing.active
+            const prevModel = editing.model
             setEditing(null)
             void refresh()
-            if (retest) void test(id)
+            if (!retest) return
+            void test(id).then(async (ok) => {
+              if (ok) {
+                if (wasActive) void enable(id)
+                return
+              }
+              // the switch didn't take: restore the previously working model of
+              // an active provider so config and reality stay consistent (the
+              // failed id would otherwise linger in the edit dialog). Unused
+              // providers keep the typed id for easy typo-fixing.
+              if (!wasActive) return
+              const api = agentApi()
+              if (!api) return
+              const row = (await api.listProviders()).find((r) => r.id === id)
+              if (row && row.model !== prevModel) {
+                await api.saveProviderConfig(id, { model: prevModel })
+                await refresh()
+              }
+            })
           }}
         />
       )}

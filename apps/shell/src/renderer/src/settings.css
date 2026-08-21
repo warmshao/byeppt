@@ -375,11 +375,6 @@
   margin-bottom: 8px;
   font-family: inherit;
 }
-/* connectivity failure shown inline under the provider name */
-.set-provider-fail {
-  font-size: 12px;
-  text-align: left;
-}
 /* "in use" pill replacing the enable button on the active provider */
 .set-inuse {
   display: inline-flex;
